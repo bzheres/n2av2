@@ -13,7 +13,10 @@ export default function Navbar() {
     localStorage.setItem("n2a_theme", theme);
   }, [theme]);
 
-  React.useEffect(() => { me().then(r => setUser(r.user)).catch(()=>setUser(null)); }, []);
+  // Load user once on mount
+  React.useEffect(() => {
+    me().then(r => setUser(r.user)).catch(() => setUser(null));
+  }, []);
 
   async function doLogout() {
     try { await logout(); } catch {}
@@ -21,25 +24,83 @@ export default function Navbar() {
     window.location.href = "/account";
   }
 
+  const navLinks = (
+    <>
+      <li><NavLink to="/instructions">Instructions</NavLink></li>
+      <li><NavLink to="/workflow">Workflow</NavLink></li>
+      <li><NavLink to="/contact">Contact</NavLink></li>
+      <li><NavLink to="/about">About</NavLink></li>
+    </>
+  );
+
   return (
     <div className="navbar bg-base-100 border-b border-base-200 sticky top-0 z-50">
+      {/* LEFT: Mobile dropdown + Brand */}
       <div className="navbar-start">
-        <Link to="/" className="btn btn-ghost text-xl">N2A</Link>
-        <div className="hidden md:flex">
-          <ul className="menu menu-horizontal px-1">
-            <li><NavLink to="/instructions">Instructions</NavLink></li>
-            <li><NavLink to="/workflow">Workflow</NavLink></li>
-            <li><NavLink to="/contact">Contact</NavLink></li>
-            <li><NavLink to="/about">About</NavLink></li>
+        {/* Mobile dropdown (shows <lg) */}
+        <div className="dropdown lg:hidden">
+          <label tabIndex={0} className="btn btn-ghost btn-circle">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              className="h-5 w-5"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+            </svg>
+          </label>
+
+          <ul
+            tabIndex={0}
+            className="menu menu-sm dropdown-content mt-3 z-[1] p-2 shadow bg-base-200 rounded-box w-56"
+          >
+            {navLinks}
+            <li className="mt-2">
+              <Link to="/account" className="btn btn-primary btn-sm w-full">
+                {user ? user.username : "Login"}
+              </Link>
+            </li>
+            {user && (
+              <li className="mt-1">
+                <button className="btn btn-ghost btn-sm w-full" onClick={doLogout}>
+                  Logout
+                </button>
+              </li>
+            )}
           </ul>
         </div>
+
+        {/* Brand */}
+        <Link to="/" className="btn btn-ghost text-xl">N2A</Link>
       </div>
+
+      {/* CENTER: Desktop nav (shows lg+) */}
+      <div className="navbar-center hidden lg:flex">
+        <ul className="menu menu-horizontal px-1 gap-1">
+          {navLinks}
+        </ul>
+      </div>
+
+      {/* RIGHT: Theme + Login/User + Logout (desktop) */}
       <div className="navbar-end gap-2">
-        <select className="select select-bordered select-sm" value={theme} onChange={(e)=>setTheme(e.target.value)}>
+        <select
+          className="select select-bordered select-sm"
+          value={theme}
+          onChange={(e) => setTheme(e.target.value)}
+        >
           {THEMES.map(t => <option key={t} value={t}>{t}</option>)}
         </select>
-        <Link to="/account" className="btn btn-primary">{user ? user.username : "Login"}</Link>
-        {user && <button className="btn btn-ghost btn-sm" onClick={doLogout}>Logout</button>}
+
+        <Link to="/account" className="btn btn-primary btn-sm">
+          {user ? user.username : "Login"}
+        </Link>
+
+        {user && (
+          <button className="btn btn-ghost btn-sm" onClick={doLogout}>
+            Logout
+          </button>
+        )}
       </div>
     </div>
   );
