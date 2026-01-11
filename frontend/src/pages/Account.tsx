@@ -42,7 +42,12 @@ export default function Account(){
     <div className="max-w-4xl mx-auto grid lg:grid-cols-2 gap-6">
       <div className="card bg-base-200 rounded-2xl border border-base-100">
         <div className="card-body space-y-3">
-          <h2 className="card-title text-2xl">{user?`Welcome, ${user.username}`:"Account"}</h2>
+          <h2 className="card-title text-2xl">
+            Welcome, {" "}
+            <span className="text-primary font-semibold">
+            {user ? user.username : "Guest"}
+            </span>  
+          </h2>
 
           {!user && (
             <>
