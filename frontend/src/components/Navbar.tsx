@@ -107,7 +107,13 @@ export default function Navbar() {
         </div>
 
         {/* Brand */}
-        <Link to="/" className="btn btn-ghost text-xl">N2A</Link>
+        <Link to="/" className="btn btn-ghost px-2">
+          <img
+            src="/logo.svg"
+            alt="N2A"
+            className="h-8 w-auto md:h-9 lg:h-10 opacity-90 hover:opacity-100"
+          />
+        </Link>
       </div>
 
       {/* CENTER: Desktop nav (shows lg+) */}
