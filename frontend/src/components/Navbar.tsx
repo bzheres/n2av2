@@ -2,7 +2,7 @@ import React from "react";
 import { Link, NavLink } from "react-router-dom";
 import { me, logout } from "../auth";
 
-const THEMES = ["light","dark","cupcake","corporate","synthwave","retro","cyberpunk","dracula","night","coffee"];
+const THEMES = ["light","dark","cupcake","corporate","synthwave","retro","cyberpunk","dracula","night","coffee","emerald","valentine","halloween","garden","forest","aqua","lofi","pastel","fantasy","wireframe","luxury","cmyk","autumn","business","acid","lemonade","night","winter"];
 
 export default function Navbar() {
   const [user, setUser] = React.useState<any>(null);
