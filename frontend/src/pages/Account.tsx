@@ -44,7 +44,7 @@ export default function Account(){
         <div className="card-body space-y-3">
           <h2 className="card-title text-2xl">
             Welcome, {" "}
-            <span className="text-primary font-semibold">
+            <span className={'text-primary ${user ? "font-semibold" : "opacity-80"}'}>
             {user ? user.username : "Guest"}
             </span>  
           </h2>
