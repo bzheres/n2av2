@@ -38,7 +38,7 @@ export default function Navbar() {
         <select className="select select-bordered select-sm" value={theme} onChange={(e)=>setTheme(e.target.value)}>
           {THEMES.map(t => <option key={t} value={t}>{t}</option>)}
         </select>
-        <Link to="/account" className="btn btn-outline btn-sm">{user ? user.username : "Login"}</Link>
+        <Link to="/account" className="btn btn-primary">{user ? user.username : "Login"}</Link>
         {user && <button className="btn btn-ghost btn-sm" onClick={doLogout}>Logout</button>}
       </div>
     </div>
