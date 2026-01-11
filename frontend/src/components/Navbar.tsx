@@ -89,7 +89,11 @@ export default function Navbar() {
           value={theme}
           onChange={(e) => setTheme(e.target.value)}
         >
-          {THEMES.map(t => <option key={t} value={t}>{t}</option>)}
+          {THEMES.map(t => (
+            <option key={t} value={t}>
+             {t.charAt(0).toUpperCase() + t.slice(1)}
+            </option>
+          ))}
         </select>
 
         <Link to="/account" className="btn btn-primary btn-sm">
