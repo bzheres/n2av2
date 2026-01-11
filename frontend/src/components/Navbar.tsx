@@ -2,7 +2,42 @@ import React from "react";
 import { Link, NavLink } from "react-router-dom";
 import { me, logout } from "../auth";
 
-const THEMES = ["light","dark","cupcake","corporate","synthwave","retro","cyberpunk","dracula","night","coffee","emerald","valentine","halloween","garden","forest","aqua","lofi","pastel","fantasy","wireframe","luxury","cmyk","autumn","business","acid","lemonade","night","winter"];
+const THEMES = [
+  // Core / most useful
+  "light",
+  "dim",
+  "black",
+  "dark",
+  "night",
+  "luxury",
+  "forest",
+  "business",
+  "corporate",
+
+  // Friendly / branded / aesthetic
+  "valentine",
+  "cupcake",
+  "dracula",
+  "emerald",
+  "synthwave",
+  "pastel",
+
+  // Everything else
+  "coffee",
+  "retro",
+  "cyberpunk",
+  "halloween",
+  "garden",
+  "aqua",
+  "lofi",
+  "fantasy",
+  "wireframe",
+  "cmyk",
+  "autumn",
+  "acid",
+  "lemonade",
+  "winter"
+];
 
 export default function Navbar() {
   const [user, setUser] = React.useState<any>(null);
