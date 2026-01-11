@@ -4,6 +4,9 @@ import { me } from "../auth";
 import { apiFetch } from "../api";
 
 type CardType = "qa" | "mcq";
+type EnglishVariant = "us" | "uk_au";
+type McqStyle = "1)" | "1." | "A)" | "a)" | "A." | "a.";
+
 type Card = { id: string; card_type: CardType; front: string; back: string };
 
 function parseMarkdown(md: string): Omit<Card, "id">[] {
@@ -14,6 +17,7 @@ function parseMarkdown(md: string): Omit<Card, "id">[] {
     if (s.startsWith("mcq:") || s.startsWith("mcu:")) return "mcq";
     return null;
   };
+
   const out: Omit<Card, "id">[] = [];
   let i = 0;
 
@@ -100,6 +104,41 @@ function uid() {
   return Math.random().toString(36).slice(2) + "-" + Date.now().toString(36);
 }
 
+function formatMcqOptions(front: string, style: McqStyle): string {
+  // Expected MCQ "front" shape: stem + newline + options lines (already in parseMarkdown output)
+  const lines = front.split("\n");
+  if (lines.length <= 1) return front;
+
+  const stem = lines[0];
+  const opts = lines.slice(1).filter((l) => l.trim().length > 0);
+
+  const labelFor = (idx: number) => {
+    const n = idx + 1;
+    const A = String.fromCharCode("A".charCodeAt(0) + idx);
+    const a = String.fromCharCode("a".charCodeAt(0) + idx);
+
+    switch (style) {
+      case "1)":
+        return `${n})`;
+      case "1.":
+        return `${n}.`;
+      case "A)":
+        return `${A})`;
+      case "a)":
+        return `${a})`;
+      case "A.":
+        return `${A}.`;
+      case "a.":
+        return `${a}.`;
+      default:
+        return `${n})`;
+    }
+  };
+
+  const rebuilt = opts.map((o, i) => `${labelFor(i)} ${o.replace(/^\s*([A-Za-z]|\d+)[\)\.]\s+/, "").trim()}`);
+  return [stem, ...rebuilt].join("\n");
+}
+
 export default function Workflow() {
   const [user, setUser] = React.useState<any>(null);
 
@@ -110,11 +149,18 @@ export default function Workflow() {
   const [status, setStatus] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
 
+  // Controls
+  const [mcqStyle, setMcqStyle] = React.useState<McqStyle>("1)");
+  const [englishVariant, setEnglishVariant] = React.useState<EnglishVariant>("uk_au");
+
   React.useEffect(() => {
     me().then((r) => setUser(r.user)).catch(() => setUser(null));
   }, []);
 
   const parsedCount = cards.length;
+
+  // Plan gating
+  const canAI = !!user && user.plan && user.plan !== "free" && user.plan !== "guest";
 
   function clearAll() {
     setRaw("");
@@ -139,7 +185,12 @@ export default function Workflow() {
   }
 
   function exportCSV() {
-    const rows = [["Front", "Back"], ...cards.map((c) => [c.front, c.back])];
+    // Apply MCQ formatting style at export-time (does not affect storage/parsing)
+    const exportedCards = cards.map((c) =>
+      c.card_type === "mcq" ? { ...c, front: formatMcqOptions(c.front, mcqStyle) } : c
+    );
+
+    const rows = [["Front", "Back"], ...exportedCards.map((c) => [c.front, c.back])];
     const csv = rows
       .map((r) => r.map((v) => `"${String(v).replaceAll('"', '""')}"`).join(","))
       .join("\n");
@@ -154,8 +205,6 @@ export default function Workflow() {
   }
 
   // ---- AI Review (safe placeholder, won’t break your app) ----
-  const canAI = !!user && user.plan && user.plan !== "free" && user.plan !== "guest";
-
   async function aiReviewCard(id: string) {
     if (!canAI) {
       setStatus("AI Review is available on paid plans. Please subscribe in Account.");
@@ -168,19 +217,19 @@ export default function Workflow() {
     setBusy(true);
     setStatus("Running AI review…");
     try {
-      // Try common endpoints; adjust later once you confirm your backend route.
-      // Expected response shape: { front?: string, back?: string, notes?: string }
+      // Send MCQ style and English variant as hints (backend may ignore safely)
+      const payload = {
+        card_type: card.card_type,
+        front: card.card_type === "mcq" ? formatMcqOptions(card.front, mcqStyle) : card.front,
+        back: card.back,
+        english_variant: englishVariant, // "us" | "uk_au"
+      };
+
       let res: any = null;
       try {
-        res = await apiFetch("/ai/review", {
-          method: "POST",
-          body: JSON.stringify({ card_type: card.card_type, front: card.front, back: card.back }),
-        });
+        res = await apiFetch("/ai/review", { method: "POST", body: JSON.stringify(payload) });
       } catch {
-        res = await apiFetch("/ai/review-card", {
-          method: "POST",
-          body: JSON.stringify({ card_type: card.card_type, front: card.front, back: card.back }),
-        });
+        res = await apiFetch("/ai/review-card", { method: "POST", body: JSON.stringify(payload) });
       }
 
       if (res?.front || res?.back) {
@@ -212,7 +261,6 @@ export default function Workflow() {
     setBusy(true);
     setStatus("Running AI review on all cards…");
     try {
-      // Sequential to avoid rate-limits while you’re early-stage.
       for (const c of cards) {
         // eslint-disable-next-line no-await-in-loop
         await aiReviewCard(c.id);
@@ -237,25 +285,7 @@ export default function Workflow() {
             Parse locally, edit freely, export clean CSV for Anki. AI review is available on paid plans.
           </p>
 
-          <div className="flex flex-col sm:flex-row justify-center gap-3 pt-2">
-            <button className="btn btn-primary" disabled={!raw || busy} onClick={doParse}>
-              Parse
-            </button>
-            <button className="btn btn-outline" disabled={busy} onClick={clearAll}>
-              Clear
-            </button>
-            <button className="btn btn-secondary" disabled={!parsedCount || busy} onClick={exportCSV}>
-              Export CSV
-            </button>
-          </div>
-
-          <div className="flex flex-col sm:flex-row justify-center gap-3 pt-1">
-            <button className="btn btn-ghost" disabled={!parsedCount || busy || !canAI} onClick={aiReviewAll}>
-              AI Review all
-            </button>
-          </div>
-
-          <div className="flex justify-center pt-1">
+          <div className="flex justify-center pt-2">
             <div
               className={[
                 "badge badge-lg",
@@ -268,9 +298,10 @@ export default function Workflow() {
         </div>
       </section>
 
-      {/* UPLOAD BAND */}
+      {/* UPLOAD + PARSE BAND */}
       <section className="px-4 md:px-6 lg:px-8 py-10 md:py-12 bg-base-200">
         <div className="max-w-6xl mx-auto grid lg:grid-cols-[420px_1fr] gap-6 items-start">
+          {/* 1) Upload */}
           <div className="card bg-base-100 border border-base-300 rounded-2xl">
             <div className="card-body space-y-4">
               <div>
@@ -299,38 +330,94 @@ export default function Workflow() {
 
               {!user && (
                 <div className="alert alert-info">
-                  <span>
-                    Guest mode works for parse/edit/export. Login to subscribe + AI.
-                  </span>
+                  <span>Guest mode works for parse/edit/export. Login to subscribe + AI.</span>
                 </div>
               )}
             </div>
           </div>
 
+          {/* 2) Parse & Review */}
           <div className="card bg-base-100 border border-base-300 rounded-2xl">
-            <div className="card-body space-y-3">
-              <h2 className="text-xl font-bold">2) Parse & Review</h2>
+            <div className="card-body space-y-4">
+              <div className="flex items-start justify-between gap-3 flex-wrap">
+                <div>
+                  <h2 className="text-xl font-bold">2) Parse & Review</h2>
+                  <p className="text-sm opacity-70">Parse your file, tune formatting, then edit cards below.</p>
+                </div>
 
-              <div className="grid sm:grid-cols-3 gap-3">
-                <div className="rounded-2xl border border-base-300 bg-base-200/40 p-4 text-center">
-                  <div className="text-sm opacity-70">Cards</div>
-                  <div className="text-2xl font-extrabold text-primary">{parsedCount}</div>
+                <div className="flex flex-wrap gap-2">
+                  <div className="rounded-xl border border-base-300 bg-base-200/40 px-3 py-2 text-center">
+                    <div className="text-xs opacity-70">Cards</div>
+                    <div className="text-xl font-extrabold text-primary leading-none">{parsedCount}</div>
+                  </div>
                 </div>
-                <div className="rounded-2xl border border-base-300 bg-base-200/40 p-4 text-center">
-                  <div className="text-sm opacity-70">Mode</div>
-                  <div className="text-2xl font-extrabold">{user ? "User" : "Guest"}</div>
+              </div>
+
+              {/* Controls row */}
+              <div className="grid md:grid-cols-2 gap-3">
+                <div className="rounded-2xl border border-base-300 bg-base-200/40 p-4 space-y-2">
+                  <div className="text-sm font-semibold">MCQ option style</div>
+                  <div className="text-xs opacity-70">
+                    Controls how MCQ options are displayed/exported (doesn’t affect parsing).
+                  </div>
+                  <select
+                    className="select select-bordered w-full"
+                    value={mcqStyle}
+                    onChange={(e) => setMcqStyle(e.target.value as McqStyle)}
+                  >
+                    <option value="1)">1)</option>
+                    <option value="1.">1.</option>
+                    <option value="A)">A)</option>
+                    <option value="a)">a)</option>
+                    <option value="A.">A.</option>
+                    <option value="a.">a.</option>
+                  </select>
                 </div>
-                <div className="rounded-2xl border border-base-300 bg-base-200/40 p-4 text-center">
-                  <div className="text-sm opacity-70">AI Review</div>
-                  <div className="text-2xl font-extrabold">{canAI ? "On" : "Off"}</div>
+
+                <div className="rounded-2xl border border-base-300 bg-base-200/40 p-4 space-y-2">
+                  <div className="text-sm font-semibold">AI English (paid)</div>
+                  <div className="text-xs opacity-70">
+                    Paid users can choose the English variant used for AI review.
+                  </div>
+                  <select
+                    className="select select-bordered w-full"
+                    value={englishVariant}
+                    onChange={(e) => setEnglishVariant(e.target.value as EnglishVariant)}
+                    disabled={!canAI}
+                    title={!canAI ? "Requires a paid plan" : "Choose AI review English"}
+                  >
+                    <option value="uk_au">English (UK/AUS)</option>
+                    <option value="us">English (US)</option>
+                  </select>
+                  {!canAI && (
+                    <div className="text-xs opacity-70">
+                      Subscribe in <span className="font-semibold">Account</span> to enable this.
+                    </div>
+                  )}
                 </div>
+              </div>
+
+              {/* Action buttons (moved here) */}
+              <div className="flex flex-col sm:flex-row gap-3 pt-1">
+                <button className="btn btn-primary" disabled={!raw || busy} onClick={doParse}>
+                  Parse
+                </button>
+                <button className="btn btn-outline" disabled={busy} onClick={clearAll}>
+                  Clear
+                </button>
+                <button className="btn btn-secondary" disabled={!parsedCount || busy} onClick={exportCSV}>
+                  Export CSV
+                </button>
+                <button className="btn btn-ghost" disabled={!parsedCount || busy || !canAI} onClick={aiReviewAll}>
+                  AI Review all
+                </button>
               </div>
 
               <div className="text-sm opacity-75">
                 Tips:
                 <ul className="list-disc ml-5 mt-1">
                   <li>Edit cards before exporting to avoid messy Anki imports.</li>
-                  <li>MCQs are stored as “stem + options” in the Front, and answer in the Back.</li>
+                  <li>MCQ style affects display/export and AI review input (not parsing).</li>
                   <li>If parsing looks wrong: fix formatting in Notion and re-export.</li>
                 </ul>
               </div>
@@ -364,52 +451,62 @@ export default function Workflow() {
             </div>
           ) : (
             <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {cards.map((c) => (
-                <div
-                  key={c.id}
-                  className="card bg-base-200/40 border border-base-300 rounded-2xl
-                             transition-all duration-200 hover:-translate-y-1 hover:border-primary/40 hover:bg-base-200"
-                >
-                  <div className="card-body space-y-3">
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="badge badge-outline">{c.card_type.toUpperCase()}</div>
+              {cards.map((c) => {
+                const previewFront =
+                  c.card_type === "mcq" ? formatMcqOptions(c.front, mcqStyle) : c.front;
 
-                      <div className="flex gap-2">
-                        <button
-                          className="btn btn-xs btn-ghost"
-                          disabled={busy || !canAI}
-                          onClick={() => aiReviewCard(c.id)}
-                          title={canAI ? "AI Review this card" : "AI Review requires a paid plan"}
-                        >
-                          AI Review
-                        </button>
-                        <button
-                          className="btn btn-xs btn-ghost"
-                          disabled={busy}
-                          onClick={() => deleteCard(c.id)}
-                          title="Delete card"
-                        >
-                          Delete
-                        </button>
+                return (
+                  <div
+                    key={c.id}
+                    className="card bg-base-200/40 border border-base-300 rounded-2xl
+                               transition-all duration-200 hover:-translate-y-1 hover:border-primary/40 hover:bg-base-200"
+                  >
+                    <div className="card-body space-y-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="badge badge-outline">{c.card_type.toUpperCase()}</div>
+
+                        <div className="flex gap-2">
+                          <button
+                            className="btn btn-xs btn-ghost"
+                            disabled={busy || !canAI}
+                            onClick={() => aiReviewCard(c.id)}
+                            title={canAI ? "AI Review this card" : "AI Review requires a paid plan"}
+                          >
+                            AI Review
+                          </button>
+                          <button
+                            className="btn btn-xs btn-ghost"
+                            disabled={busy}
+                            onClick={() => deleteCard(c.id)}
+                            title="Delete card"
+                          >
+                            Delete
+                          </button>
+                        </div>
                       </div>
+
+                      <div className="text-xs font-semibold opacity-70">Front (preview)</div>
+                      <pre className="whitespace-pre-wrap text-sm leading-relaxed bg-base-100/40 border border-base-300 rounded-xl p-3">
+                        {previewFront}
+                      </pre>
+
+                      <div className="text-xs font-semibold opacity-70">Front (edit)</div>
+                      <textarea
+                        className="textarea textarea-bordered w-full min-h-[96px] text-sm leading-relaxed"
+                        value={c.front}
+                        onChange={(e) => updateCard(c.id, { front: e.target.value })}
+                      />
+
+                      <div className="text-xs font-semibold opacity-70">Back</div>
+                      <textarea
+                        className="textarea textarea-bordered w-full min-h-[96px] text-sm leading-relaxed"
+                        value={c.back}
+                        onChange={(e) => updateCard(c.id, { back: e.target.value })}
+                      />
                     </div>
-
-                    <div className="text-xs font-semibold opacity-70">Front</div>
-                    <textarea
-                      className="textarea textarea-bordered w-full min-h-[96px] text-sm leading-relaxed"
-                      value={c.front}
-                      onChange={(e) => updateCard(c.id, { front: e.target.value })}
-                    />
-
-                    <div className="text-xs font-semibold opacity-70">Back</div>
-                    <textarea
-                      className="textarea textarea-bordered w-full min-h-[96px] text-sm leading-relaxed"
-                      value={c.back}
-                      onChange={(e) => updateCard(c.id, { back: e.target.value })}
-                    />
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
