@@ -6,6 +6,7 @@ import { apiFetch } from "../api";
 type CardType = "qa" | "mcq";
 type EnglishVariant = "us" | "uk_au";
 type McqStyle = "1)" | "1." | "A)" | "a)" | "A." | "a.";
+type FilterMode = "all" | "qa" | "mcq";
 
 type Card = { id: string; card_type: CardType; front: string; back: string };
 
@@ -105,7 +106,6 @@ function uid() {
 }
 
 function formatMcqOptions(front: string, style: McqStyle): string {
-  // Expected MCQ "front" shape: stem + newline + options lines (already in parseMarkdown output)
   const lines = front.split("\n");
   if (lines.length <= 1) return front;
 
@@ -135,8 +135,60 @@ function formatMcqOptions(front: string, style: McqStyle): string {
     }
   };
 
-  const rebuilt = opts.map((o, i) => `${labelFor(i)} ${o.replace(/^\s*([A-Za-z]|\d+)[\)\.]\s+/, "").trim()}`);
+  const rebuilt = opts.map((o, i) => {
+    // If the option line already starts with a label like "A) ..." or "1. ...", strip it
+    const cleaned = o.replace(/^\s*([A-Za-z]|\d+)[\)\.]\s+/, "").trim();
+    return `${labelFor(i)} ${cleaned}`;
+  });
+
   return [stem, ...rebuilt].join("\n");
+}
+
+function formatMcqAnswer(back: string, style: McqStyle): string {
+  // Try to normalize to a single answer label; keep any extra explanation if present.
+  // Examples input: "B", "B)", "2", "2)", "Answer: B", "B - because ...", "B) Because ..."
+  const raw = (back || "").trim();
+  if (!raw) return raw;
+
+  // Capture leading token that looks like letter/number
+  const m = raw.match(/^(\s*(answer:\s*)?)\s*([A-Za-z]|\d+)[\)\.\:]?\s*(.*)$/i);
+  if (!m) return raw;
+
+  const token = m[3];
+  const rest = (m[4] || "").trim();
+
+  const isNum = /^\d+$/.test(token);
+  const idx = isNum ? Math.max(parseInt(token, 10) - 1, 0) : token.toUpperCase().charCodeAt(0) - "A".charCodeAt(0);
+
+  const n = idx + 1;
+  const A = String.fromCharCode("A".charCodeAt(0) + idx);
+  const a = String.fromCharCode("a".charCodeAt(0) + idx);
+
+  let label = "";
+  switch (style) {
+    case "1)":
+      label = `${n})`;
+      break;
+    case "1.":
+      label = `${n}.`;
+      break;
+    case "A)":
+      label = `${A})`;
+      break;
+    case "a)":
+      label = `${a})`;
+      break;
+    case "A.":
+      label = `${A}.`;
+      break;
+    case "a.":
+      label = `${a}.`;
+      break;
+    default:
+      label = `${n})`;
+  }
+
+  return rest ? `${label} ${rest}` : label;
 }
 
 export default function Workflow() {
@@ -152,6 +204,10 @@ export default function Workflow() {
   // Controls
   const [mcqStyle, setMcqStyle] = React.useState<McqStyle>("1)");
   const [englishVariant, setEnglishVariant] = React.useState<EnglishVariant>("uk_au");
+  const [filterMode, setFilterMode] = React.useState<FilterMode>("all");
+
+  // Edit toggle per-card
+  const [editingIds, setEditingIds] = React.useState<Set<string>>(() => new Set());
 
   React.useEffect(() => {
     me().then((r) => setUser(r.user)).catch(() => setUser(null));
@@ -159,20 +215,29 @@ export default function Workflow() {
 
   const parsedCount = cards.length;
 
-  // Plan gating
+  // Plan gating (keep same loose gating as before)
   const canAI = !!user && user.plan && user.plan !== "free" && user.plan !== "guest";
+
+  const filteredCards = React.useMemo(() => {
+    if (filterMode === "all") return cards;
+    return cards.filter((c) => c.card_type === filterMode);
+  }, [cards, filterMode]);
+
+  const filteredCount = filteredCards.length;
 
   function clearAll() {
     setRaw("");
     setFilename("");
     setCards([]);
     setStatus(null);
+    setEditingIds(new Set());
   }
 
   function doParse() {
     setStatus(null);
     const parsed = parseMarkdown(raw).map((c) => ({ ...c, id: uid() }));
     setCards(parsed);
+    setEditingIds(new Set());
     setStatus(`Parsed ${parsed.length} card${parsed.length === 1 ? "" : "s"}.`);
   }
 
@@ -182,12 +247,28 @@ export default function Workflow() {
 
   function deleteCard(id: string) {
     setCards((prev) => prev.filter((c) => c.id !== id));
+    setEditingIds((prev) => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+  }
+
+  function toggleEdit(id: string) {
+    setEditingIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   }
 
   function exportCSV() {
-    // Apply MCQ formatting style at export-time (does not affect storage/parsing)
+    // Apply MCQ formatting style at export-time (front + back)
     const exportedCards = cards.map((c) =>
-      c.card_type === "mcq" ? { ...c, front: formatMcqOptions(c.front, mcqStyle) } : c
+      c.card_type === "mcq"
+        ? { ...c, front: formatMcqOptions(c.front, mcqStyle), back: formatMcqAnswer(c.back, mcqStyle) }
+        : c
     );
 
     const rows = [["Front", "Back"], ...exportedCards.map((c) => [c.front, c.back])];
@@ -204,7 +285,7 @@ export default function Workflow() {
     URL.revokeObjectURL(url);
   }
 
-  // ---- AI Review (safe placeholder, won’t break your app) ----
+  // ---- AI Review ----
   async function aiReviewCard(id: string) {
     if (!canAI) {
       setStatus("AI Review is available on paid plans. Please subscribe in Account.");
@@ -217,12 +298,11 @@ export default function Workflow() {
     setBusy(true);
     setStatus("Running AI review…");
     try {
-      // Send MCQ style and English variant as hints (backend may ignore safely)
       const payload = {
         card_type: card.card_type,
         front: card.card_type === "mcq" ? formatMcqOptions(card.front, mcqStyle) : card.front,
-        back: card.back,
-        english_variant: englishVariant, // "us" | "uk_au"
+        back: card.card_type === "mcq" ? formatMcqAnswer(card.back, mcqStyle) : card.back,
+        english_variant: englishVariant,
       };
 
       let res: any = null;
@@ -286,12 +366,7 @@ export default function Workflow() {
           </p>
 
           <div className="flex justify-center pt-2">
-            <div
-              className={[
-                "badge badge-lg",
-                user ? "badge-primary badge-outline" : "badge-ghost",
-              ].join(" ")}
-            >
+            <div className={["badge badge-lg", user ? "badge-primary badge-outline" : "badge-ghost"].join(" ")}>
               {user ? `Logged in (${user.plan})` : "Guest mode"}
             </div>
           </div>
@@ -314,6 +389,7 @@ export default function Workflow() {
                   setRaw(t);
                   setFilename(n);
                   setCards([]);
+                  setEditingIds(new Set());
                   setStatus(null);
                 }}
               />
@@ -347,19 +423,35 @@ export default function Workflow() {
 
                 <div className="flex flex-wrap gap-2">
                   <div className="rounded-xl border border-base-300 bg-base-200/40 px-3 py-2 text-center">
-                    <div className="text-xs opacity-70">Cards</div>
+                    <div className="text-xs opacity-70">Total</div>
                     <div className="text-xl font-extrabold text-primary leading-none">{parsedCount}</div>
+                  </div>
+                  <div className="rounded-xl border border-base-300 bg-base-200/40 px-3 py-2 text-center">
+                    <div className="text-xs opacity-70">Shown</div>
+                    <div className="text-xl font-extrabold text-primary leading-none">{filteredCount}</div>
                   </div>
                 </div>
               </div>
 
               {/* Controls row */}
-              <div className="grid md:grid-cols-2 gap-3">
+              <div className="grid md:grid-cols-3 gap-3">
+                <div className="rounded-2xl border border-base-300 bg-base-200/40 p-4 space-y-2">
+                  <div className="text-sm font-semibold">Filter</div>
+                  <div className="text-xs opacity-70">Show all cards or a subset.</div>
+                  <select
+                    className="select select-bordered w-full"
+                    value={filterMode}
+                    onChange={(e) => setFilterMode(e.target.value as FilterMode)}
+                  >
+                    <option value="all">All</option>
+                    <option value="qa">Q&A only</option>
+                    <option value="mcq">MCQ only</option>
+                  </select>
+                </div>
+
                 <div className="rounded-2xl border border-base-300 bg-base-200/40 p-4 space-y-2">
                   <div className="text-sm font-semibold">MCQ option style</div>
-                  <div className="text-xs opacity-70">
-                    Controls how MCQ options are displayed/exported (doesn’t affect parsing).
-                  </div>
+                  <div className="text-xs opacity-70">Affects preview/export/AI input (not parsing).</div>
                   <select
                     className="select select-bordered w-full"
                     value={mcqStyle}
@@ -376,9 +468,7 @@ export default function Workflow() {
 
                 <div className="rounded-2xl border border-base-300 bg-base-200/40 p-4 space-y-2">
                   <div className="text-sm font-semibold">AI English (paid)</div>
-                  <div className="text-xs opacity-70">
-                    Paid users can choose the English variant used for AI review.
-                  </div>
+                  <div className="text-xs opacity-70">Paid users can pick the AI review variant.</div>
                   <select
                     className="select select-bordered w-full"
                     value={englishVariant}
@@ -389,15 +479,11 @@ export default function Workflow() {
                     <option value="uk_au">English (UK/AUS)</option>
                     <option value="us">English (US)</option>
                   </select>
-                  {!canAI && (
-                    <div className="text-xs opacity-70">
-                      Subscribe in <span className="font-semibold">Account</span> to enable this.
-                    </div>
-                  )}
+                  {!canAI && <div className="text-xs opacity-70">Subscribe in Account to enable this.</div>}
                 </div>
               </div>
 
-              {/* Action buttons (moved here) */}
+              {/* Action buttons */}
               <div className="flex flex-col sm:flex-row gap-3 pt-1">
                 <button className="btn btn-primary" disabled={!raw || busy} onClick={doParse}>
                   Parse
@@ -416,9 +502,9 @@ export default function Workflow() {
               <div className="text-sm opacity-75">
                 Tips:
                 <ul className="list-disc ml-5 mt-1">
-                  <li>Edit cards before exporting to avoid messy Anki imports.</li>
-                  <li>MCQ style affects display/export and AI review input (not parsing).</li>
-                  <li>If parsing looks wrong: fix formatting in Notion and re-export.</li>
+                  <li>Use Filter to quickly scan MCQs or Q&As.</li>
+                  <li>MCQ style updates preview/export and what the AI sees.</li>
+                  <li>Edits only show when you click “Edit” per card.</li>
                 </ul>
               </div>
             </div>
@@ -435,25 +521,27 @@ export default function Workflow() {
                 Cards <span className="text-primary">Preview</span>
               </h2>
               <p className="opacity-70 text-sm">
-                Click into fields to edit. Delete anything you don’t want exported.
+                Preview is always shown. Click Edit to modify front/back. Delete removes the card from export.
               </p>
             </div>
           </div>
 
-          {!cards.length ? (
+          {!filteredCards.length ? (
             <div className="card bg-base-200/40 border border-base-300 rounded-2xl">
               <div className="card-body text-center space-y-2">
-                <div className="text-lg font-semibold">No cards yet</div>
+                <div className="text-lg font-semibold">No cards to show</div>
                 <div className="text-sm opacity-70">
-                  Upload a Markdown export, then press <span className="font-semibold">Parse</span>.
+                  {cards.length ? "Try changing the Filter." : "Upload a Markdown export, then press Parse."}
                 </div>
               </div>
             </div>
           ) : (
             <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {cards.map((c) => {
-                const previewFront =
-                  c.card_type === "mcq" ? formatMcqOptions(c.front, mcqStyle) : c.front;
+              {filteredCards.map((c) => {
+                const isEditing = editingIds.has(c.id);
+
+                const previewFront = c.card_type === "mcq" ? formatMcqOptions(c.front, mcqStyle) : c.front;
+                const previewBack = c.card_type === "mcq" ? formatMcqAnswer(c.back, mcqStyle) : c.back;
 
                 return (
                   <div
@@ -474,6 +562,16 @@ export default function Workflow() {
                           >
                             AI Review
                           </button>
+
+                          <button
+                            className="btn btn-xs btn-ghost"
+                            disabled={busy}
+                            onClick={() => toggleEdit(c.id)}
+                            title="Toggle edit"
+                          >
+                            {isEditing ? "Close" : "Edit"}
+                          </button>
+
                           <button
                             className="btn btn-xs btn-ghost"
                             disabled={busy}
@@ -485,24 +583,35 @@ export default function Workflow() {
                         </div>
                       </div>
 
+                      {/* Preview always visible */}
                       <div className="text-xs font-semibold opacity-70">Front (preview)</div>
                       <pre className="whitespace-pre-wrap text-sm leading-relaxed bg-base-100/40 border border-base-300 rounded-xl p-3">
                         {previewFront}
                       </pre>
 
-                      <div className="text-xs font-semibold opacity-70">Front (edit)</div>
-                      <textarea
-                        className="textarea textarea-bordered w-full min-h-[96px] text-sm leading-relaxed"
-                        value={c.front}
-                        onChange={(e) => updateCard(c.id, { front: e.target.value })}
-                      />
+                      <div className="text-xs font-semibold opacity-70">Back (preview)</div>
+                      <pre className="whitespace-pre-wrap text-sm leading-relaxed bg-base-100/40 border border-base-300 rounded-xl p-3">
+                        {previewBack}
+                      </pre>
 
-                      <div className="text-xs font-semibold opacity-70">Back</div>
-                      <textarea
-                        className="textarea textarea-bordered w-full min-h-[96px] text-sm leading-relaxed"
-                        value={c.back}
-                        onChange={(e) => updateCard(c.id, { back: e.target.value })}
-                      />
+                      {/* Edit panel toggled */}
+                      {isEditing && (
+                        <div className="rounded-2xl border border-base-300 bg-base-100/50 p-3 space-y-3">
+                          <div className="text-xs font-semibold opacity-70">Front (edit)</div>
+                          <textarea
+                            className="textarea textarea-bordered w-full min-h-[96px] text-sm leading-relaxed"
+                            value={c.front}
+                            onChange={(e) => updateCard(c.id, { front: e.target.value })}
+                          />
+
+                          <div className="text-xs font-semibold opacity-70">Back (edit)</div>
+                          <textarea
+                            className="textarea textarea-bordered w-full min-h-[96px] text-sm leading-relaxed"
+                            value={c.back}
+                            onChange={(e) => updateCard(c.id, { back: e.target.value })}
+                          />
+                        </div>
+                      )}
                     </div>
                   </div>
                 );
