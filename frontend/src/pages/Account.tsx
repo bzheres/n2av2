@@ -50,15 +50,6 @@ export default function Account() {
   const [sent, setSent] = React.useState(false);
   const [resetBusy, setResetBusy] = React.useState(false);
 
-  const prices = React.useMemo(
-    () => ({
-      silver: import.meta.env.VITE_STRIPE_PRICE_SILVER as string,
-      gold: import.meta.env.VITE_STRIPE_PRICE_GOLD as string,
-      platinum: import.meta.env.VITE_STRIPE_PRICE_PLATINUM as string,
-    }),
-    []
-  );
-
   async function refresh() {
     try {
       const r = await me();
@@ -93,10 +84,10 @@ export default function Account() {
     await refresh();
   }
 
-  async function doCheckout(priceId: string) {
+  async function doCheckout(plan: "silver" | "gold" | "platinum") {
     const r = await apiFetch<{ url: string }>("/billing/checkout", {
       method: "POST",
-      body: JSON.stringify({ price_id: priceId }),
+      body: JSON.stringify({ plan }),
     });
     window.location.href = r.url;
   }
@@ -117,7 +108,6 @@ export default function Account() {
     subtitle: string;
     features: string[];
     priceLabel: string;
-    priceId?: string;
   }> = [
     {
       key: "free",
@@ -131,7 +121,6 @@ export default function Account() {
       title: "Silver",
       subtitle: "Light AI support for small batches.",
       priceLabel: "Monthly",
-      priceId: prices.silver,
       features: ["Everything in Free", "AI review (starter limit)", "Priority improvements & fixes"],
     },
     {
@@ -139,7 +128,6 @@ export default function Account() {
       title: "Gold",
       subtitle: "Best value for regular studying.",
       priceLabel: "Monthly",
-      priceId: prices.gold,
       features: ["Everything in Silver", "Higher AI review limits", "Faster iteration on features"],
     },
     {
@@ -147,12 +135,11 @@ export default function Account() {
       title: "Platinum",
       subtitle: "Power users + heavy AI review.",
       priceLabel: "Monthly",
-      priceId: prices.platinum,
       features: ["Everything in Gold", "Highest AI review limits", "Early access to new tools"],
     },
   ];
 
-  function PlanAction({ planKey, priceId }: { planKey: PlanKey; priceId?: string }) {
+  function PlanAction({ planKey }: { planKey: PlanKey }) {
     const isActive = currentPlan === planKey;
 
     if (!user) {
@@ -193,9 +180,7 @@ export default function Account() {
     return (
       <button
         className="btn btn-outline w-full"
-        onClick={() => priceId && doCheckout(priceId)}
-        disabled={!priceId}
-        title={!priceId ? "Missing price id env var" : ""}
+        onClick={() => doCheckout(planKey as "silver" | "gold" | "platinum")}
       >
         Choose {planLabel(planKey)}
       </button>
@@ -425,11 +410,7 @@ export default function Account() {
                 <h3 className="text-2xl font-bold">Plans</h3>
                 <p className="opacity-80 text-sm">Checkout is handled by your backend Stripe endpoints.</p>
               </div>
-              {user && (
-                <div className="badge badge-primary badge-outline">
-                  Current: {planLabel(currentPlan)}
-                </div>
-              )}
+              {user && <div className="badge badge-primary badge-outline">Current: {planLabel(currentPlan)}</div>}
             </div>
 
             <div className="grid md:grid-cols-2 xl:grid-cols-4 gap-4">
@@ -437,9 +418,8 @@ export default function Account() {
                 const active = currentPlan === p.key;
                 return (
                   <div key={p.key} className={planCardClass(active)}>
-                    {/* Balanced layout: body is a flex column so button sits at the bottom */}
+                    {/* Balanced layout: button pinned to bottom */}
                     <div className="card-body flex flex-col">
-                      {/* Header */}
                       <div className="flex items-start justify-between gap-3">
                         <div>
                           <div className="text-xl font-bold">{p.title}</div>
@@ -448,13 +428,11 @@ export default function Account() {
                         {active && <div className="badge badge-primary">Current</div>}
                       </div>
 
-                      {/* Price row (consistent height) */}
                       <div className="mt-2 text-sm opacity-80 min-h-[24px]">
                         <span className="font-semibold">{p.priceLabel}</span>
                         {p.key !== "free" ? <span className="opacity-70"> / month</span> : null}
                       </div>
 
-                      {/* Features (flexes to balance card heights) */}
                       <div className="mt-3 flex-1">
                         <ul className="text-sm opacity-80 space-y-1 list-disc list-inside">
                           {p.features.map((f) => (
@@ -463,24 +441,14 @@ export default function Account() {
                         </ul>
                       </div>
 
-                      {/* Action pinned to bottom */}
                       <div className="mt-4">
-                        <PlanAction planKey={p.key} priceId={p.priceId} />
+                        <PlanAction planKey={p.key} />
                       </div>
                     </div>
                   </div>
                 );
               })}
             </div>
-
-            {!prices.silver || !prices.gold || !prices.platinum ? (
-              <div className="alert alert-warning mt-4">
-                <span>
-                  Missing one or more <span className="font-semibold">VITE_STRIPE_PRICE_*</span> env vars in the frontend. Set them in Netlify (and locally in{" "}
-                  <span className="font-semibold">frontend/.env</span>) to enable checkout buttons.
-                </span>
-              </div>
-            ) : null}
           </div>
         </div>
       </section>
