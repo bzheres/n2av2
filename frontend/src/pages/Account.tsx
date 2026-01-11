@@ -12,7 +12,7 @@ function normalizePlan(p: any): PlanKey {
   return "free";
 }
 
-function planBadge(plan: PlanKey) {
+function planLabel(plan: PlanKey) {
   switch (plan) {
     case "platinum":
       return "Platinum";
@@ -42,11 +42,13 @@ export default function Account() {
   const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
   const [err, setErr] = React.useState<string | null>(null);
+  const [busy, setBusy] = React.useState(false);
 
   const [resetEmail, setResetEmail] = React.useState("");
   const [resetToken, setResetToken] = React.useState("");
   const [newPass, setNewPass] = React.useState("");
   const [sent, setSent] = React.useState(false);
+  const [resetBusy, setResetBusy] = React.useState(false);
 
   const prices = React.useMemo(
     () => ({
@@ -72,14 +74,17 @@ export default function Account() {
 
   const currentPlan: PlanKey = normalizePlan(user?.plan);
 
-  async function submit() {
+  async function submitAuth() {
     setErr(null);
+    setBusy(true);
     try {
       if (mode === "signup") await signup(username || "User", email, password);
       else await login(email, password);
       await refresh();
     } catch (e: any) {
       setErr(e?.message || "Failed");
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -119,12 +124,7 @@ export default function Account() {
       title: "Free",
       subtitle: "For trying N2A and basic workflows.",
       priceLabel: "$0",
-      features: [
-        "Upload Notion Markdown export",
-        "Parse Q&A and MCQ cards",
-        "Edit & export CSV for Anki",
-        "No AI review",
-      ],
+      features: ["Upload Notion Markdown export", "Parse Q&A and MCQ cards", "Edit & export CSV for Anki", "No AI review"],
     },
     {
       key: "silver",
@@ -132,11 +132,7 @@ export default function Account() {
       subtitle: "Light AI support for small batches.",
       priceLabel: "Monthly",
       priceId: prices.silver,
-      features: [
-        "Everything in Free",
-        "AI review (starter limit)",
-        "Priority improvements & fixes",
-      ],
+      features: ["Everything in Free", "AI review (starter limit)", "Priority improvements & fixes"],
     },
     {
       key: "gold",
@@ -144,11 +140,7 @@ export default function Account() {
       subtitle: "Best value for regular studying.",
       priceLabel: "Monthly",
       priceId: prices.gold,
-      features: [
-        "Everything in Silver",
-        "Higher AI review limits",
-        "Faster iteration on features",
-      ],
+      features: ["Everything in Silver", "Higher AI review limits", "Faster iteration on features"],
     },
     {
       key: "platinum",
@@ -156,11 +148,7 @@ export default function Account() {
       subtitle: "Power users + heavy AI review.",
       priceLabel: "Monthly",
       priceId: prices.platinum,
-      features: [
-        "Everything in Gold",
-        "Highest AI review limits",
-        "Early access to new tools",
-      ],
+      features: ["Everything in Gold", "Highest AI review limits", "Early access to new tools"],
     },
   ];
 
@@ -209,7 +197,7 @@ export default function Account() {
         disabled={!priceId}
         title={!priceId ? "Missing price id env var" : ""}
       >
-        Choose {planBadge(planKey)}
+        Choose {planLabel(planKey)}
       </button>
     );
   }
@@ -222,14 +210,9 @@ export default function Account() {
           <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
             <div>
               <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight">
-                Welcome,{" "}
-                <span className="text-primary">
-                  {user ? user.username : "Guest"}
-                </span>
+                Welcome, <span className="text-primary">{user ? user.username : "Guest"}</span>
               </h1>
-              <p className="opacity-80 mt-2 max-w-2xl">
-                Manage your account, subscription, and (soon) AI review usage.
-              </p>
+              <p className="opacity-80 mt-2 max-w-2xl">Manage your account, subscription, and AI review usage.</p>
             </div>
 
             {user && (
@@ -263,16 +246,10 @@ export default function Account() {
                   <h2 className="card-title text-2xl">Account</h2>
                   {!user && (
                     <div className="tabs tabs-boxed">
-                      <a
-                        className={`tab ${mode === "login" ? "tab-active" : ""}`}
-                        onClick={() => setMode("login")}
-                      >
+                      <a className={`tab ${mode === "login" ? "tab-active" : ""}`} onClick={() => setMode("login")}>
                         Login
                       </a>
-                      <a
-                        className={`tab ${mode === "signup" ? "tab-active" : ""}`}
-                        onClick={() => setMode("signup")}
-                      >
+                      <a className={`tab ${mode === "signup" ? "tab-active" : ""}`} onClick={() => setMode("signup")}>
                         Create
                       </a>
                     </div>
@@ -281,58 +258,92 @@ export default function Account() {
 
                 {!user ? (
                   <>
-                    {mode === "signup" && (
-                      <input
-                        className="input input-bordered"
-                        placeholder="Username"
-                        value={username}
-                        onChange={(e) => setUsername(e.target.value)}
-                      />
-                    )}
-                    <input
-                      className="input input-bordered"
-                      placeholder="Email"
-                      type="email"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                    />
-                    <input
-                      className="input input-bordered"
-                      placeholder="Password"
-                      type="password"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                    />
-                    {err && <div className="alert alert-error">{err}</div>}
-                    <button className="btn btn-primary" onClick={submit}>
-                      {mode === "signup" ? "Create account" : "Login"}
-                    </button>
-
-                    <div className="divider">Password reset</div>
-                    <input
-                      className="input input-bordered"
-                      placeholder="Email for reset"
-                      value={resetEmail}
-                      onChange={(e) => setResetEmail(e.target.value)}
-                    />
-                    <button
-                      className="btn btn-outline"
-                      onClick={async () => {
-                        await requestPasswordReset(resetEmail);
-                        setSent(true);
+                    {/* ENTER submits (login/signup) */}
+                    <form
+                      className="space-y-3"
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        if (!busy) submitAuth();
                       }}
                     >
-                      Send reset email
-                    </button>
-                    {sent && (
-                      <div className="alert">
-                        <span>If that email exists, a reset link was sent.</span>
-                      </div>
-                    )}
+                      {mode === "signup" && (
+                        <input
+                          className="input input-bordered w-full"
+                          placeholder="Username"
+                          value={username}
+                          onChange={(e) => setUsername(e.target.value)}
+                        />
+                      )}
+
+                      <input
+                        className="input input-bordered w-full"
+                        placeholder="Email"
+                        type="email"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        autoComplete="email"
+                      />
+
+                      <input
+                        className="input input-bordered w-full"
+                        placeholder="Password"
+                        type="password"
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        autoComplete={mode === "signup" ? "new-password" : "current-password"}
+                      />
+
+                      {err && <div className="alert alert-error">{err}</div>}
+
+                      <button className="btn btn-primary w-full" type="submit" disabled={busy}>
+                        {busy ? "Please wait…" : mode === "signup" ? "Create account" : "Login"}
+                      </button>
+                    </form>
+
+                    <div className="divider">Password reset</div>
+                    <div className="space-y-3">
+                      <input
+                        className="input input-bordered w-full"
+                        placeholder="Email for reset"
+                        value={resetEmail}
+                        onChange={(e) => setResetEmail(e.target.value)}
+                        type="email"
+                      />
+                      <button
+                        className="btn btn-outline w-full"
+                        disabled={resetBusy || !resetEmail}
+                        onClick={async () => {
+                          setResetBusy(true);
+                          try {
+                            await requestPasswordReset(resetEmail);
+                            setSent(true);
+                          } finally {
+                            setResetBusy(false);
+                          }
+                        }}
+                      >
+                        {resetBusy ? "Sending…" : "Send reset email"}
+                      </button>
+                      {sent && (
+                        <div className="alert">
+                          <span>If that email exists, a reset link was sent.</span>
+                        </div>
+                      )}
+                    </div>
 
                     <details className="mt-2">
                       <summary className="cursor-pointer opacity-80">Reset with token (testing)</summary>
-                      <div className="mt-3 space-y-3">
+
+                      {/* ENTER submits token reset */}
+                      <form
+                        className="mt-3 space-y-3"
+                        onSubmit={async (e) => {
+                          e.preventDefault();
+                          if (!resetToken || !newPass) return;
+                          await resetPassword(resetToken, newPass);
+                          await refresh();
+                        }}
+                      >
                         <input
                           className="input input-bordered w-full"
                           placeholder="Reset token"
@@ -346,16 +357,10 @@ export default function Account() {
                           value={newPass}
                           onChange={(e) => setNewPass(e.target.value)}
                         />
-                        <button
-                          className="btn btn-primary"
-                          onClick={async () => {
-                            await resetPassword(resetToken, newPass);
-                            await refresh();
-                          }}
-                        >
+                        <button className="btn btn-primary w-full" type="submit">
                           Reset password
                         </button>
-                      </div>
+                      </form>
                     </details>
                   </>
                 ) : (
@@ -374,34 +379,26 @@ export default function Account() {
                 <div className="grid sm:grid-cols-2 gap-4">
                   <div className="p-4 rounded-2xl bg-base-100 border border-base-300">
                     <div className="text-sm opacity-70">Username</div>
-                    <div className="font-semibold text-lg">
-                      {user ? user.username : "Guest"}
-                    </div>
+                    <div className="font-semibold text-lg">{user ? user.username : "Guest"}</div>
                   </div>
 
                   <div className="p-4 rounded-2xl bg-base-100 border border-base-300">
                     <div className="text-sm opacity-70">Email</div>
-                    <div className="font-semibold text-lg">
-                      {user ? user.email : "—"}
-                    </div>
+                    <div className="font-semibold text-lg">{user ? user.email : "—"}</div>
                   </div>
 
                   <div className="p-4 rounded-2xl bg-base-100 border border-base-300">
                     <div className="text-sm opacity-70">Tier</div>
-                    <div className="font-semibold text-lg text-primary">
-                      {planBadge(currentPlan)}
-                    </div>
+                    <div className="font-semibold text-lg text-primary">{planLabel(currentPlan)}</div>
                   </div>
 
                   <div className="p-4 rounded-2xl bg-base-100 border border-base-300">
                     <div className="text-sm opacity-70">Stripe linked</div>
-                    <div className="font-semibold text-lg">
-                      {user?.stripe_customer_id ? "Yes" : "No"}
-                    </div>
+                    <div className="font-semibold text-lg">{user?.stripe_customer_id ? "Yes" : "No"}</div>
                   </div>
                 </div>
 
-                <div className="divider">Usage (placeholder)</div>
+                <div className="divider">Usage</div>
 
                 <div className="grid sm:grid-cols-2 gap-4">
                   <div className="p-4 rounded-2xl bg-base-100 border border-base-300">
@@ -415,8 +412,7 @@ export default function Account() {
                 </div>
 
                 <p className="text-sm opacity-70">
-                  (These counters show <span className="font-semibold">0</span> unless your backend returns usage fields.
-                  We can wire them up later without changing the UI.)
+                  If these stay at <span className="font-semibold">0</span>, we’ll wire them to real counters from the backend later.
                 </p>
               </div>
             </div>
@@ -427,13 +423,11 @@ export default function Account() {
             <div className="flex items-end justify-between gap-4 flex-wrap">
               <div>
                 <h3 className="text-2xl font-bold">Plans</h3>
-                <p className="opacity-80 text-sm">
-                  Checkout is handled by your backend Stripe endpoints.
-                </p>
+                <p className="opacity-80 text-sm">Checkout is handled by your backend Stripe endpoints.</p>
               </div>
-              {user && currentPlan !== "free" && (
+              {user && (
                 <div className="badge badge-primary badge-outline">
-                  Current: {planBadge(currentPlan)}
+                  Current: {planLabel(currentPlan)}
                 </div>
               )}
             </div>
@@ -443,7 +437,9 @@ export default function Account() {
                 const active = currentPlan === p.key;
                 return (
                   <div key={p.key} className={planCardClass(active)}>
-                    <div className="card-body space-y-3">
+                    {/* Balanced layout: body is a flex column so button sits at the bottom */}
+                    <div className="card-body flex flex-col">
+                      {/* Header */}
                       <div className="flex items-start justify-between gap-3">
                         <div>
                           <div className="text-xl font-bold">{p.title}</div>
@@ -452,18 +448,23 @@ export default function Account() {
                         {active && <div className="badge badge-primary">Current</div>}
                       </div>
 
-                      <div className="text-sm opacity-80">
+                      {/* Price row (consistent height) */}
+                      <div className="mt-2 text-sm opacity-80 min-h-[24px]">
                         <span className="font-semibold">{p.priceLabel}</span>
                         {p.key !== "free" ? <span className="opacity-70"> / month</span> : null}
                       </div>
 
-                      <ul className="text-sm opacity-80 space-y-1 list-disc list-inside">
-                        {p.features.map((f) => (
-                          <li key={f}>{f}</li>
-                        ))}
-                      </ul>
+                      {/* Features (flexes to balance card heights) */}
+                      <div className="mt-3 flex-1">
+                        <ul className="text-sm opacity-80 space-y-1 list-disc list-inside">
+                          {p.features.map((f) => (
+                            <li key={f}>{f}</li>
+                          ))}
+                        </ul>
+                      </div>
 
-                      <div className="pt-1">
+                      {/* Action pinned to bottom */}
+                      <div className="mt-4">
                         <PlanAction planKey={p.key} priceId={p.priceId} />
                       </div>
                     </div>
@@ -475,8 +476,8 @@ export default function Account() {
             {!prices.silver || !prices.gold || !prices.platinum ? (
               <div className="alert alert-warning mt-4">
                 <span>
-                  Missing one or more <span className="font-semibold">VITE_STRIPE_PRICE_*</span> env vars in the frontend.
-                  Set them in Netlify (and locally in <span className="font-semibold">frontend/.env</span>) to enable checkout buttons.
+                  Missing one or more <span className="font-semibold">VITE_STRIPE_PRICE_*</span> env vars in the frontend. Set them in Netlify (and locally in{" "}
+                  <span className="font-semibold">frontend/.env</span>) to enable checkout buttons.
                 </span>
               </div>
             ) : null}
