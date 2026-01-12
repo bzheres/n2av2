@@ -19,44 +19,37 @@ app = FastAPI(title="N2A API", version="2.0")
 
 
 def _cors_origins() -> list[str]:
-    """
-    CORS origins come from:
-      - settings.FRONTEND_URL (single origin)
-      - settings.CORS_EXTRA_ORIGINS (comma-separated list)
-    We also include common local dev origins by default.
-    """
-    raw: list[str] = []
+    origins: list[str] = []
 
-    # Primary frontend URL (Railway env)
-    if settings.FRONTEND_URL:
-        raw.append(settings.FRONTEND_URL.strip())
+    # Primary frontend URL (single origin)
+    if getattr(settings, "FRONTEND_URL", None):
+        if settings.FRONTEND_URL and settings.FRONTEND_URL.strip():
+            origins.append(settings.FRONTEND_URL.strip())
 
-    # Local dev
-    raw.extend(
+    # Optional extra origins (comma-separated)
+    extra = (getattr(settings, "CORS_EXTRA_ORIGINS", "") or "").strip()
+    if extra:
+        origins.extend([o.strip() for o in extra.split(",") if o.strip()])
+
+    # Helpful local dev + your domains (keep these even if FRONTEND_URL is set)
+    origins.extend(
         [
             "http://localhost:5173",
             "http://127.0.0.1:5173",
             "http://localhost:5500",
             "http://127.0.0.1:5500",
+            "https://n2a.com.au",
+            "https://www.n2a.com.au",
         ]
     )
 
-    # Production (your domain)
-    raw.extend(["https://n2a.com.au", "https://www.n2a.com.au"])
-
-    # Extra comma-separated origins (optional)
-    extra = (settings.CORS_EXTRA_ORIGINS or "").strip()
-    if extra:
-        raw.extend([o.strip() for o in extra.split(",") if o.strip()])
-
     # De-dupe while preserving order
-    seen: set[str] = set()
+    seen = set()
     out: list[str] = []
-    for o in raw:
-        if o and o not in seen:
+    for o in origins:
+        if o not in seen:
             out.append(o)
             seen.add(o)
-
     return out
 
 
@@ -67,6 +60,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 
 @app.get("/health")
 def health():
