@@ -50,6 +50,8 @@ export default function Account() {
   const [sent, setSent] = React.useState(false);
   const [resetBusy, setResetBusy] = React.useState(false);
 
+  const [checkoutBusy, setCheckoutBusy] = React.useState<null | PlanKey>(null);
+
   async function refresh() {
     try {
       const r = await me();
@@ -85,16 +87,28 @@ export default function Account() {
   }
 
   async function doCheckout(plan: "silver" | "gold" | "platinum") {
-    const r = await apiFetch<{ url: string }>("/billing/checkout", {
-      method: "POST",
-      body: JSON.stringify({ plan }),
-    });
-    window.location.href = r.url;
+    setErr(null);
+    setCheckoutBusy(plan);
+    try {
+      const r = await apiFetch<{ url: string }>("/billing/checkout", {
+        method: "POST",
+        body: JSON.stringify({ plan }),
+      });
+      window.location.href = r.url;
+    } catch (e: any) {
+      setErr(e?.message || "Checkout failed");
+      setCheckoutBusy(null);
+    }
   }
 
   async function doPortal() {
-    const r = await apiFetch<{ url: string }>("/billing/portal", { method: "POST" });
-    window.location.href = r.url;
+    setErr(null);
+    try {
+      const r = await apiFetch<{ url: string }>("/billing/portal", { method: "POST" });
+      window.location.href = r.url;
+    } catch (e: any) {
+      setErr(e?.message || "Could not open portal");
+    }
   }
 
   const usage = {
@@ -177,12 +191,15 @@ export default function Account() {
       );
     }
 
+    const isBusy = checkoutBusy === planKey;
+
     return (
       <button
         className="btn btn-outline w-full"
         onClick={() => doCheckout(planKey as "silver" | "gold" | "platinum")}
+        disabled={!!checkoutBusy}
       >
-        Choose {planLabel(planKey)}
+        {isBusy ? "Redirecting…" : `Choose ${planLabel(planKey)}`}
       </button>
     );
   }
@@ -349,9 +366,12 @@ export default function Account() {
                     </details>
                   </>
                 ) : (
-                  <div className="alert">
-                    <span>You’re logged in.</span>
-                  </div>
+                  <>
+                    {err && <div className="alert alert-error">{err}</div>}
+                    <div className="alert">
+                      <span>You’re logged in.</span>
+                    </div>
+                  </>
                 )}
               </div>
             </div>
@@ -418,7 +438,6 @@ export default function Account() {
                 const active = currentPlan === p.key;
                 return (
                   <div key={p.key} className={planCardClass(active)}>
-                    {/* Balanced layout: button pinned to bottom */}
                     <div className="card-body flex flex-col">
                       <div className="flex items-start justify-between gap-3">
                         <div>
