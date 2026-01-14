@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import settings
 from .db import engine, Base
-
 from .routes.auth_routes import router as auth_router
 from .routes.projects_routes import router as projects_router
 from .routes.cards_routes import router as cards_router
@@ -20,32 +19,43 @@ app = FastAPI(title="N2A API", version="2.0")
 
 
 def _cors_origins() -> list[str]:
-    # Always allow your production frontends + local dev
-    base = [
-        "https://n2a.com.au",
-        "https://www.n2a.com.au",
+    """
+    Returns an explicit allowlist of origins.
+    IMPORTANT: Must return a list, otherwise CORS headers won't be added.
+    """
+    origins: list[str] = []
+
+    # Primary frontend origin from env
+    if settings.FRONTEND_URL:
+        origins.append(settings.FRONTEND_URL.strip())
+
+    # Local dev origins (safe to keep)
+    origins += [
         "http://localhost:5173",
         "http://127.0.0.1:5173",
         "http://localhost:5500",
         "http://127.0.0.1:5500",
     ]
 
-    # Allow configured FRONTEND_URL if present
-    if getattr(settings, "FRONTEND_URL", None):
-        base.append(settings.FRONTEND_URL.strip())
+    # Production origins (include both apex + www)
+    origins += [
+        "https://n2a.com.au",
+        "https://www.n2a.com.au",
+    ]
 
-    # Allow any extra origins (comma-separated)
-    extra = (getattr(settings, "CORS_EXTRA_ORIGINS", "") or "").strip()
+    # Optional extra allowlist (comma-separated)
+    extra = (settings.CORS_EXTRA_ORIGINS or "").strip()
     if extra:
-        base.extend([o.strip() for o in extra.split(",") if o.strip()])
+        origins.extend([o.strip() for o in extra.split(",") if o.strip()])
 
-    # De-dupe while preserving order
-    seen: set[str] = set()
+    # De-dupe (preserve order)
+    seen = set()
     out: list[str] = []
-    for o in base:
+    for o in origins:
         if o and o not in seen:
             out.append(o)
             seen.add(o)
+
     return out
 
 
@@ -60,15 +70,6 @@ app.add_middleware(
 @app.get("/health")
 def health():
     return {"ok": True}
-
-# TEMP debug (remove once confirmed)
-@app.post("/debug/echo")
-async def debug_echo(request: Request):
-    raw = await request.body()
-    return {
-        "content_type": request.headers.get("content-type"),
-        "raw": raw.decode("utf-8", errors="replace"),
-    }
 
 app.include_router(auth_router)
 app.include_router(projects_router)

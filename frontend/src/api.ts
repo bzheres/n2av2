@@ -1,5 +1,7 @@
 const raw = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
 const API_BASE_URL = raw.replace(/\/+$/, "");
+console.log("API_BASE_URL =", API_BASE_URL);
+
 
 export async function apiFetch<T>(path: string, opts: RequestInit = {}): Promise<T> {
   const res = await fetch(`${API_BASE_URL}${path}`, {
