@@ -1,5 +1,7 @@
 from __future__ import annotations
+
 import stripe
+from stripe.error import StripeError
 from ..config import settings
 
 stripe.api_key = settings.STRIPE_SECRET_KEY
@@ -11,6 +13,10 @@ PRICE_TO_PLAN = {
 }
 
 def create_checkout_session(customer_email: str, price_id: str, success_url: str, cancel_url: str):
+    """
+    Creates a Stripe Checkout Session for subscriptions.
+    Raises StripeError if Stripe rejects the request (invalid key/price/etc.).
+    """
     return stripe.checkout.Session.create(
         mode="subscription",
         customer_email=customer_email,
