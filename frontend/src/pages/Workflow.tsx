@@ -1,6 +1,6 @@
 import React from "react";
 import UploadBox from "../components/UploadBox";
-import { me } from "../auth";
+import { meCached } from "../auth";
 import { apiFetch } from "../api";
 
 type CardType = "qa" | "mcq";
@@ -201,6 +201,7 @@ function formatMcqAnswer(back: string, style: McqStyle): string {
 
 export default function Workflow() {
   const [user, setUser] = React.useState<any>(null);
+  const [authLoading, setAuthLoading] = React.useState(true);
 
   const [raw, setRaw] = React.useState("");
   const [filename, setFilename] = React.useState("");
@@ -223,12 +224,72 @@ export default function Workflow() {
   // Local UI memory: mark cards "reviewed" even if backend returns null AI fields
   const [aiReviewedIds, setAiReviewedIds] = React.useState<Set<string>>(() => new Set());
 
+  // ---- Auth load (no flicker) ----
   React.useEffect(() => {
-    me().then((r) => setUser(r.user)).catch(() => setUser(null));
+    let alive = true;
+    meCached(false)
+      .then((r) => {
+        if (!alive) return;
+        setUser(r.user);
+      })
+      .catch(() => setUser(null))
+      .finally(() => {
+        if (!alive) return;
+        setAuthLoading(false);
+      });
+
+    return () => {
+      alive = false;
+    };
   }, []);
 
-  const parsedCount = cards.length;
+  // ---- Resume latest project on refresh (logged in only) ----
+  React.useEffect(() => {
+    if (authLoading) return;
+    if (!user) return;
 
+    let alive = true;
+
+    (async () => {
+      try {
+        const latest = await apiFetch<{ project: { id: number; name?: string } | null }>("/projects/latest");
+        if (!alive) return;
+
+        if (!latest.project) return;
+
+        const pid = latest.project.id;
+        setProjectId(pid);
+
+        const res = await apiFetch<{ cards: any[] }>(`/projects/${pid}/cards`);
+        if (!alive) return;
+
+        const loaded = (res.cards || []).map((c) => ({
+          id: String(c.id),
+          card_type: c.card_type as CardType,
+          front: c.front,
+          back: c.back,
+          ai_changed: c.ai_changed ?? null,
+          ai_flag: c.ai_flag ?? null,
+          ai_feedback: c.ai_feedback ?? null,
+          ai_suggest_front: c.ai_suggest_front ?? null,
+          ai_suggest_back: c.ai_suggest_back ?? null,
+        })) as Card[];
+
+        if (loaded.length) {
+          setCards(loaded);
+          setStatus(`Resumed Project #${pid} (${loaded.length} cards).`);
+        }
+      } catch {
+        // silent; don’t block the page
+      }
+    })();
+
+    return () => {
+      alive = false;
+    };
+  }, [authLoading, user]);
+
+  const parsedCount = cards.length;
   const canAI = !!user && user.plan && user.plan !== "free" && user.plan !== "guest";
 
   const filteredCards = React.useMemo(() => {
@@ -318,10 +379,10 @@ export default function Workflow() {
         method: "POST",
         body: JSON.stringify({ name: baseName }),
       });
+
       const pid = pr.project.id;
       setProjectId(pid);
 
-      // Backend should return { cards: [...] } with IDs
       const cr = await apiFetch<{ cards: Array<{ id: number; card_type: CardType; front: string; back: string }> }>("/cards", {
         method: "POST",
         body: JSON.stringify({
@@ -355,9 +416,7 @@ export default function Workflow() {
 
   function exportCSV() {
     const exportedCards = cards.map((c) =>
-      c.card_type === "mcq"
-        ? { ...c, front: formatMcqOptions(c.front, mcqStyle), back: formatMcqAnswer(c.back, mcqStyle) }
-        : c
+      c.card_type === "mcq" ? { ...c, front: formatMcqOptions(c.front, mcqStyle), back: formatMcqAnswer(c.back, mcqStyle) } : c
     );
 
     const rows = [["Front", "Back"], ...exportedCards.map((c) => [c.front, c.back])];
@@ -394,7 +453,6 @@ export default function Workflow() {
     setBusy(true);
     setStatus(apply ? "Applying AI review…" : "Running AI review…");
 
-    // Mark as reviewed immediately (so UI will show a panel even if result is null)
     setAiReviewedIds((prev) => {
       const next = new Set(prev);
       next.add(id);
@@ -433,7 +491,6 @@ export default function Workflow() {
             ...c,
             ai_changed: changed,
             ai_flag: flag,
-            // If feedback empty, still store a friendly message so it renders.
             ai_feedback: feedback || (changed ? "AI suggested improvements (see suggested front/back)." : "Looks good — no changes suggested."),
             ai_suggest_front: res.result.front ?? null,
             ai_suggest_back: res.result.back ?? null,
@@ -448,7 +505,6 @@ export default function Workflow() {
       );
 
       if (apply && changed) {
-        // already applied by backend, but keep best-effort persistence if you ever decouple
         await persistCardEditIfPossible(id, res.result.front, res.result.back);
       }
 
@@ -487,6 +543,15 @@ export default function Workflow() {
     } finally {
       setBusy(false);
     }
+  }
+
+  // ---- Render guard (smooth auth) ----
+  if (authLoading) {
+    return (
+      <div className="min-h-[60vh] flex items-center justify-center">
+        <span className="loading loading-spinner loading-lg" />
+      </div>
+    );
   }
 
   return (
@@ -530,6 +595,8 @@ export default function Workflow() {
                 onFile={(t, n) => {
                   setRaw(t);
                   setFilename(n);
+
+                  // new upload = new session, clear current cards/project
                   setCards([]);
                   setEditingIds(new Set());
                   setStatus(null);
@@ -563,9 +630,7 @@ export default function Workflow() {
                 <div>
                   <h2 className="text-xl font-bold">2) Parse & Review</h2>
                   <p className="text-sm opacity-70">
-                    {user
-                      ? "Parse creates a Project and saves cards for persistent AI review."
-                      : "Parse locally, edit, export. Login to persist + AI review."}
+                    {user ? "Parse creates a Project and saves cards for persistent AI review." : "Parse locally, edit, export. Login to persist + AI review."}
                   </p>
                 </div>
 
@@ -586,11 +651,7 @@ export default function Workflow() {
                 <div className="rounded-2xl border border-base-300 bg-base-200/40 p-4 space-y-2">
                   <div className="text-sm font-semibold">Filter</div>
                   <div className="text-xs opacity-70">Show all cards or a subset.</div>
-                  <select
-                    className="select select-bordered w-full"
-                    value={filterMode}
-                    onChange={(e) => setFilterMode(e.target.value as FilterMode)}
-                  >
+                  <select className="select select-bordered w-full" value={filterMode} onChange={(e) => setFilterMode(e.target.value as FilterMode)}>
                     <option value="all">All</option>
                     <option value="qa">Q&A only</option>
                     <option value="mcq">MCQ only</option>
@@ -600,11 +661,7 @@ export default function Workflow() {
                 <div className="rounded-2xl border border-base-300 bg-base-200/40 p-4 space-y-2">
                   <div className="text-sm font-semibold">MCQ option style</div>
                   <div className="text-xs opacity-70">Affects preview/export and what AI sees.</div>
-                  <select
-                    className="select select-bordered w-full"
-                    value={mcqStyle}
-                    onChange={(e) => setMcqStyle(e.target.value as McqStyle)}
-                  >
+                  <select className="select select-bordered w-full" value={mcqStyle} onChange={(e) => setMcqStyle(e.target.value as McqStyle)}>
                     <option value="1)">1)</option>
                     <option value="1.">1.</option>
                     <option value="A)">A)</option>
@@ -662,9 +719,7 @@ export default function Workflow() {
               <h2 className="text-2xl font-extrabold tracking-tight">
                 Cards <span className="text-primary">Preview</span>
               </h2>
-              <p className="opacity-70 text-sm">
-                Preview is always shown. Click Edit to modify front/back. Delete removes the card from export.
-              </p>
+              <p className="opacity-70 text-sm">Preview is always shown. Click Edit to modify front/back. Delete removes the card from export.</p>
             </div>
           </div>
 
@@ -672,9 +727,7 @@ export default function Workflow() {
             <div className="card bg-base-200/40 border border-base-300 rounded-2xl">
               <div className="card-body text-center space-y-2">
                 <div className="text-lg font-semibold">No cards to show</div>
-                <div className="text-sm opacity-70">
-                  {cards.length ? "Try changing the Filter." : "Upload a Markdown export, then press Parse."}
-                </div>
+                <div className="text-sm opacity-70">{cards.length ? "Try changing the Filter." : "Upload a Markdown export, then press Parse."}</div>
               </div>
             </div>
           ) : (
@@ -686,7 +739,6 @@ export default function Workflow() {
                 const previewFront = c.card_type === "mcq" ? formatMcqOptions(c.front, mcqStyle) : c.front;
                 const previewBack = c.card_type === "mcq" ? formatMcqAnswer(c.back, mcqStyle) : c.back;
 
-                // Show AI panel if backend has any ai fields OR if we reviewed it in this session
                 const hasAnyAiField =
                   c.ai_changed !== undefined ||
                   c.ai_flag !== undefined ||
@@ -740,7 +792,6 @@ export default function Workflow() {
                         </div>
                       </div>
 
-                      {/* AI panel that shows even when all AI fields are null */}
                       {showAiPanel && (
                         <div className="rounded-xl border border-base-300 bg-base-100/40 p-3 space-y-2">
                           <div className="flex items-center justify-between">
@@ -757,8 +808,8 @@ export default function Workflow() {
                             {feedback
                               ? feedback
                               : wasReviewedThisSession
-                                ? "AI review ran successfully, but returned no feedback/suggestions for this card."
-                                : "AI fields are empty for this card (no stored feedback)."}
+                              ? "AI review ran successfully, but returned no feedback/suggestions for this card."
+                              : "AI fields are empty for this card (no stored feedback)."}
                           </div>
 
                           {changed && (c.ai_suggest_front || c.ai_suggest_back) && (
@@ -779,7 +830,6 @@ export default function Workflow() {
                         </div>
                       )}
 
-                      {/* Preview always visible */}
                       <div className="text-xs font-semibold opacity-70">Front (preview)</div>
                       <pre className="whitespace-pre-wrap text-sm leading-relaxed bg-base-100/40 border border-base-300 rounded-xl p-3">
                         {previewFront}
@@ -790,7 +840,6 @@ export default function Workflow() {
                         {previewBack}
                       </pre>
 
-                      {/* Edit panel toggled */}
                       {isEditing && (
                         <div className="rounded-2xl border border-base-300 bg-base-100/50 p-3 space-y-3">
                           <div className="text-xs font-semibold opacity-70">Front (edit)</div>

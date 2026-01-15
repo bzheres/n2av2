@@ -67,12 +67,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 @app.get("/health")
 def health():
     return {"ok": True}
 
+
 app.include_router(auth_router)
-app.include_router(projects_router)
+app.include_router(projects_router)  # now includes /projects/latest + /projects/{id}/cards
 app.include_router(cards_router)
 app.include_router(export_router)
 app.include_router(ai_router)
