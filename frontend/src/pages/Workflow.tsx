@@ -9,20 +9,18 @@ type McqStyle = "1)" | "1." | "A)" | "a)" | "A." | "a.";
 type FilterMode = "all" | "qa" | "mcq";
 
 type Card = {
-  id: string; // keep string for UI (guest IDs), but persisted IDs will be numeric-as-string
+  id: string; // UI keeps string IDs; persisted IDs are numeric-as-string
   card_type: CardType;
   front: string;
   back: string;
 
-  // AI fields (optional)
-  ai_changed?: boolean;
+  // AI fields (optional, may be null from DB)
+  ai_changed?: boolean | null;
   ai_flag?: string | null;
   ai_feedback?: string | null;
   ai_suggest_front?: string | null;
   ai_suggest_back?: string | null;
 };
-
-const LAST_PROJECT_KEY = "n2a:last_project_id";
 
 function parseMarkdown(md: string): Omit<Card, "id">[] {
   const lines = md.split(/\r?\n/);
@@ -222,9 +220,15 @@ export default function Workflow() {
   // Persistence
   const [projectId, setProjectId] = React.useState<number | null>(null);
 
+  // Local UI memory: mark cards "reviewed" even if backend returns null AI fields
+  const [aiReviewedIds, setAiReviewedIds] = React.useState<Set<string>>(() => new Set());
+
+  React.useEffect(() => {
+    me().then((r) => setUser(r.user)).catch(() => setUser(null));
+  }, []);
+
   const parsedCount = cards.length;
 
-  // Plan gating (same loose gating)
   const canAI = !!user && user.plan && user.plan !== "free" && user.plan !== "guest";
 
   const filteredCards = React.useMemo(() => {
@@ -234,53 +238,6 @@ export default function Workflow() {
 
   const filteredCount = filteredCards.length;
 
-  async function loadProject(pid: number) {
-    const r = await apiFetch<{ cards: any[] }>(`/cards/${pid}`);
-    const loaded: Card[] = (r.cards || []).map((c) => ({
-      id: String(c.id),
-      card_type: c.card_type,
-      front: c.front,
-      back: c.back,
-      ai_changed: c.ai_changed,
-      ai_flag: c.ai_flag,
-      ai_feedback: c.ai_feedback,
-      ai_suggest_front: c.ai_suggest_front,
-      ai_suggest_back: c.ai_suggest_back,
-    }));
-
-    setProjectId(pid);
-    setCards(loaded);
-    setEditingIds(new Set());
-  }
-
-  React.useEffect(() => {
-    (async () => {
-      try {
-        const r = await me();
-        setUser(r.user);
-
-        // Restore last project if possible
-        const last = localStorage.getItem(LAST_PROJECT_KEY);
-        if (last && /^\d+$/.test(last)) {
-          await loadProject(Number(last));
-          return;
-        }
-
-        // Otherwise load most recent project (if any)
-        const pr = await apiFetch<{ projects: Array<{ id: number }> }>("/projects");
-        const first = pr.projects?.[0];
-        if (first?.id) {
-          await loadProject(first.id);
-          localStorage.setItem(LAST_PROJECT_KEY, String(first.id));
-        }
-      } catch {
-        setUser(null);
-        setProjectId(null);
-      }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   function clearAll() {
     setRaw("");
     setFilename("");
@@ -288,7 +245,7 @@ export default function Workflow() {
     setStatus(null);
     setEditingIds(new Set());
     setProjectId(null);
-    localStorage.removeItem(LAST_PROJECT_KEY);
+    setAiReviewedIds(new Set());
   }
 
   function updateCardLocal(id: string, patch: Partial<Pick<Card, "front" | "back">>) {
@@ -302,13 +259,18 @@ export default function Workflow() {
     try {
       await apiFetch(`/cards/${Number(id)}`, { method: "PATCH", body: JSON.stringify({ front, back }) });
     } catch {
-      // ignore
+      // silent
     }
   }
 
   async function deleteCard(id: string) {
     setCards((prev) => prev.filter((c) => c.id !== id));
     setEditingIds((prev) => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+    setAiReviewedIds((prev) => {
       const next = new Set(prev);
       next.delete(id);
       return next;
@@ -345,6 +307,7 @@ export default function Workflow() {
         setCards(localCards);
         setEditingIds(new Set());
         setProjectId(null);
+        setAiReviewedIds(new Set());
         setStatus(`Parsed ${localCards.length} card${localCards.length === 1 ? "" : "s"} (guest mode).`);
         return;
       }
@@ -356,12 +319,10 @@ export default function Workflow() {
         body: JSON.stringify({ name: baseName }),
       });
       const pid = pr.project.id;
+      setProjectId(pid);
 
-      // Save last project id for refresh/navigation
-      localStorage.setItem(LAST_PROJECT_KEY, String(pid));
-
-      // Persist cards (your backend returns {ok:true} here)
-      await apiFetch<{ ok: boolean }>("/cards", {
+      // Backend should return { cards: [...] } with IDs
+      const cr = await apiFetch<{ cards: Array<{ id: number; card_type: CardType; front: string; back: string }> }>("/cards", {
         method: "POST",
         body: JSON.stringify({
           project_id: pid,
@@ -374,10 +335,17 @@ export default function Workflow() {
         }),
       });
 
-      // Re-load persisted cards to get real numeric IDs + AI fields
-      await loadProject(pid);
+      const persisted = cr.cards.map((c) => ({
+        id: String(c.id),
+        card_type: c.card_type,
+        front: c.front,
+        back: c.back,
+      }));
 
-      setStatus(`Parsed & saved ${parsedLocal.length} card${parsedLocal.length === 1 ? "" : "s"} to Project #${pid}.`);
+      setCards(persisted);
+      setEditingIds(new Set());
+      setAiReviewedIds(new Set());
+      setStatus(`Parsed & saved ${persisted.length} card${persisted.length === 1 ? "" : "s"} to Project #${pid}.`);
     } catch (e: any) {
       setStatus(e?.message ? `Parse failed: ${e.message}` : "Parse failed.");
     } finally {
@@ -404,8 +372,8 @@ export default function Workflow() {
     URL.revokeObjectURL(url);
   }
 
-  // ---- AI Review (persist + review) ----
-  function toStripeVariant(v: EnglishVariant): "en-AU" | "en-US" {
+  // ---- AI Review ----
+  function toAiVariant(v: EnglishVariant): "en-AU" | "en-US" {
     return v === "us" ? "en-US" : "en-AU";
   }
 
@@ -423,11 +391,15 @@ export default function Workflow() {
       return;
     }
 
-    const card = cards.find((c) => c.id === id);
-    if (!card) return;
-
     setBusy(true);
     setStatus(apply ? "Applying AI review…" : "Running AI review…");
+
+    // Mark as reviewed immediately (so UI will show a panel even if result is null)
+    setAiReviewedIds((prev) => {
+      const next = new Set(prev);
+      next.add(id);
+      return next;
+    });
 
     try {
       const res = await apiFetch<{
@@ -445,23 +417,29 @@ export default function Workflow() {
         body: JSON.stringify({
           project_id: projectId,
           card_id: Number(id),
-          variant: toStripeVariant(englishVariant),
+          variant: toAiVariant(englishVariant),
           apply,
         }),
       });
+
+      const changed = !!res.result.changed;
+      const flag = res.result.flag ?? "ok";
+      const feedback = (res.result.feedback ?? "").trim();
 
       setCards((prev) =>
         prev.map((c) => {
           if (c.id !== id) return c;
           const next: Card = {
             ...c,
-            ai_changed: !!res.result.changed,
-            ai_flag: res.result.flag ?? null,
-            ai_feedback: res.result.feedback ?? null,
-            ai_suggest_front: res.result.front,
-            ai_suggest_back: res.result.back,
+            ai_changed: changed,
+            ai_flag: flag,
+            // If feedback empty, still store a friendly message so it renders.
+            ai_feedback: feedback || (changed ? "AI suggested improvements (see suggested front/back)." : "Looks good — no changes suggested."),
+            ai_suggest_front: res.result.front ?? null,
+            ai_suggest_back: res.result.back ?? null,
           };
-          if (apply && res.result.changed) {
+
+          if (apply && changed) {
             next.front = res.result.front;
             next.back = res.result.back;
           }
@@ -469,7 +447,8 @@ export default function Workflow() {
         })
       );
 
-      if (apply && res.result.changed) {
+      if (apply && changed) {
+        // already applied by backend, but keep best-effort persistence if you ever decouple
         await persistCardEditIfPossible(id, res.result.front, res.result.back);
       }
 
@@ -555,6 +534,7 @@ export default function Workflow() {
                   setEditingIds(new Set());
                   setStatus(null);
                   setProjectId(null);
+                  setAiReviewedIds(new Set());
                 }}
               />
 
@@ -669,15 +649,6 @@ export default function Workflow() {
                   Apply AI all
                 </button>
               </div>
-
-              <div className="text-sm opacity-75">
-                Tips:
-                <ul className="list-disc ml-5 mt-1">
-                  <li>When logged in, Parse creates a saved Project so AI can reference card IDs.</li>
-                  <li>MCQ style changes preview/export and what AI sees.</li>
-                  <li>Manual edits are persisted for saved cards.</li>
-                </ul>
-              </div>
             </div>
           </div>
         </div>
@@ -710,11 +681,25 @@ export default function Workflow() {
             <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
               {filteredCards.map((c) => {
                 const isEditing = editingIds.has(c.id);
+                const isPersisted = /^\d+$/.test(c.id) && !!projectId;
 
                 const previewFront = c.card_type === "mcq" ? formatMcqOptions(c.front, mcqStyle) : c.front;
                 const previewBack = c.card_type === "mcq" ? formatMcqAnswer(c.back, mcqStyle) : c.back;
 
-                const isPersisted = /^\d+$/.test(c.id) && !!projectId;
+                // Show AI panel if backend has any ai fields OR if we reviewed it in this session
+                const hasAnyAiField =
+                  c.ai_changed !== undefined ||
+                  c.ai_flag !== undefined ||
+                  c.ai_feedback !== undefined ||
+                  c.ai_suggest_front !== undefined ||
+                  c.ai_suggest_back !== undefined;
+
+                const wasReviewedThisSession = aiReviewedIds.has(c.id);
+                const showAiPanel = hasAnyAiField || wasReviewedThisSession;
+
+                const changed = !!c.ai_changed;
+                const feedback = (c.ai_feedback ?? "").trim();
+                const flag = c.ai_flag ?? null;
 
                 return (
                   <div
@@ -730,14 +715,8 @@ export default function Workflow() {
                           <button
                             className="btn btn-xs btn-ghost"
                             disabled={busy || !canAI || !isPersisted}
-                            onClick={() => aiReviewCard(c.id, false)}
-                            title={
-                              !isPersisted
-                                ? "Parse while logged in to persist cards"
-                                : canAI
-                                ? "AI Review this card"
-                                : "AI requires paid plan"
-                            }
+                            onClick={() => void aiReviewCard(c.id, false)}
+                            title={!isPersisted ? "Parse while logged in to persist cards" : "AI Review this card"}
                           >
                             AI Review
                           </button>
@@ -745,7 +724,7 @@ export default function Workflow() {
                           <button
                             className="btn btn-xs btn-ghost"
                             disabled={busy || !canAI || !isPersisted}
-                            onClick={() => aiReviewCard(c.id, true)}
+                            onClick={() => void aiReviewCard(c.id, true)}
                             title={!isPersisted ? "Parse while logged in to persist cards" : "Apply AI suggestion to this card"}
                           >
                             Apply AI
@@ -761,13 +740,46 @@ export default function Workflow() {
                         </div>
                       </div>
 
-                      {c.ai_feedback ? (
-                        <div className="rounded-xl border border-base-300 bg-base-100/40 p-3">
-                          <div className="text-xs font-semibold opacity-70">AI feedback</div>
-                          <div className="text-sm whitespace-pre-wrap opacity-80">{c.ai_feedback}</div>
-                        </div>
-                      ) : null}
+                      {/* AI panel that shows even when all AI fields are null */}
+                      {showAiPanel && (
+                        <div className="rounded-xl border border-base-300 bg-base-100/40 p-3 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <div className="text-xs font-semibold opacity-70">AI result</div>
+                            <div className="flex gap-2 items-center">
+                              <span className={["badge badge-sm", changed ? "badge-warning" : "badge-success"].join(" ")}>
+                                {changed ? "Changes suggested" : "Reviewed"}
+                              </span>
+                              {flag ? <span className="badge badge-sm badge-outline">{flag}</span> : null}
+                            </div>
+                          </div>
 
+                          <div className="text-sm whitespace-pre-wrap opacity-80">
+                            {feedback
+                              ? feedback
+                              : wasReviewedThisSession
+                                ? "AI review ran successfully, but returned no feedback/suggestions for this card."
+                                : "AI fields are empty for this card (no stored feedback)."}
+                          </div>
+
+                          {changed && (c.ai_suggest_front || c.ai_suggest_back) && (
+                            <details className="collapse collapse-arrow border border-base-300 bg-base-200/40 rounded-xl">
+                              <summary className="collapse-title text-sm font-semibold">View suggested front/back</summary>
+                              <div className="collapse-content space-y-2">
+                                <div className="text-xs font-semibold opacity-70">Suggested front</div>
+                                <pre className="whitespace-pre-wrap text-sm leading-relaxed bg-base-100/40 border border-base-300 rounded-xl p-3">
+                                  {c.ai_suggest_front ?? ""}
+                                </pre>
+                                <div className="text-xs font-semibold opacity-70">Suggested back</div>
+                                <pre className="whitespace-pre-wrap text-sm leading-relaxed bg-base-100/40 border border-base-300 rounded-xl p-3">
+                                  {c.ai_suggest_back ?? ""}
+                                </pre>
+                              </div>
+                            </details>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Preview always visible */}
                       <div className="text-xs font-semibold opacity-70">Front (preview)</div>
                       <pre className="whitespace-pre-wrap text-sm leading-relaxed bg-base-100/40 border border-base-300 rounded-xl p-3">
                         {previewFront}
@@ -778,6 +790,7 @@ export default function Workflow() {
                         {previewBack}
                       </pre>
 
+                      {/* Edit panel toggled */}
                       {isEditing && (
                         <div className="rounded-2xl border border-base-300 bg-base-100/50 p-3 space-y-3">
                           <div className="text-xs font-semibold opacity-70">Front (edit)</div>
