@@ -22,6 +22,8 @@ type Card = {
   ai_suggest_back?: string | null;
 };
 
+const LAST_PROJECT_KEY = "n2a:last_project_id";
+
 function parseMarkdown(md: string): Omit<Card, "id">[] {
   const lines = md.split(/\r?\n/);
   const norm = (l: string) => {
@@ -220,10 +222,6 @@ export default function Workflow() {
   // Persistence
   const [projectId, setProjectId] = React.useState<number | null>(null);
 
-  React.useEffect(() => {
-    me().then((r) => setUser(r.user)).catch(() => setUser(null));
-  }, []);
-
   const parsedCount = cards.length;
 
   // Plan gating (same loose gating)
@@ -236,6 +234,53 @@ export default function Workflow() {
 
   const filteredCount = filteredCards.length;
 
+  async function loadProject(pid: number) {
+    const r = await apiFetch<{ cards: any[] }>(`/cards/${pid}`);
+    const loaded: Card[] = (r.cards || []).map((c) => ({
+      id: String(c.id),
+      card_type: c.card_type,
+      front: c.front,
+      back: c.back,
+      ai_changed: c.ai_changed,
+      ai_flag: c.ai_flag,
+      ai_feedback: c.ai_feedback,
+      ai_suggest_front: c.ai_suggest_front,
+      ai_suggest_back: c.ai_suggest_back,
+    }));
+
+    setProjectId(pid);
+    setCards(loaded);
+    setEditingIds(new Set());
+  }
+
+  React.useEffect(() => {
+    (async () => {
+      try {
+        const r = await me();
+        setUser(r.user);
+
+        // Restore last project if possible
+        const last = localStorage.getItem(LAST_PROJECT_KEY);
+        if (last && /^\d+$/.test(last)) {
+          await loadProject(Number(last));
+          return;
+        }
+
+        // Otherwise load most recent project (if any)
+        const pr = await apiFetch<{ projects: Array<{ id: number }> }>("/projects");
+        const first = pr.projects?.[0];
+        if (first?.id) {
+          await loadProject(first.id);
+          localStorage.setItem(LAST_PROJECT_KEY, String(first.id));
+        }
+      } catch {
+        setUser(null);
+        setProjectId(null);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   function clearAll() {
     setRaw("");
     setFilename("");
@@ -243,6 +288,7 @@ export default function Workflow() {
     setStatus(null);
     setEditingIds(new Set());
     setProjectId(null);
+    localStorage.removeItem(LAST_PROJECT_KEY);
   }
 
   function updateCardLocal(id: string, patch: Partial<Pick<Card, "front" | "back">>) {
@@ -250,14 +296,13 @@ export default function Workflow() {
   }
 
   async function persistCardEditIfPossible(id: string, front: string, back: string) {
-    // Only persist if this looks like a DB ID and we have a projectId
     if (!projectId) return;
     if (!/^\d+$/.test(id)) return;
 
     try {
       await apiFetch(`/cards/${Number(id)}`, { method: "PATCH", body: JSON.stringify({ front, back }) });
     } catch {
-      // keep silent; UI already updated locally
+      // ignore
     }
   }
 
@@ -311,9 +356,12 @@ export default function Workflow() {
         body: JSON.stringify({ name: baseName }),
       });
       const pid = pr.project.id;
-      setProjectId(pid);
 
-      const cr = await apiFetch<{ cards: Array<{ id: number; card_type: CardType; front: string; back: string }> }>("/cards", {
+      // Save last project id for refresh/navigation
+      localStorage.setItem(LAST_PROJECT_KEY, String(pid));
+
+      // Persist cards (your backend returns {ok:true} here)
+      await apiFetch<{ ok: boolean }>("/cards", {
         method: "POST",
         body: JSON.stringify({
           project_id: pid,
@@ -326,16 +374,10 @@ export default function Workflow() {
         }),
       });
 
-      const persisted = cr.cards.map((c) => ({
-        id: String(c.id),
-        card_type: c.card_type,
-        front: c.front,
-        back: c.back,
-      }));
+      // Re-load persisted cards to get real numeric IDs + AI fields
+      await loadProject(pid);
 
-      setCards(persisted);
-      setEditingIds(new Set());
-      setStatus(`Parsed & saved ${persisted.length} card${persisted.length === 1 ? "" : "s"} to Project #${pid}.`);
+      setStatus(`Parsed & saved ${parsedLocal.length} card${parsedLocal.length === 1 ? "" : "s"} to Project #${pid}.`);
     } catch (e: any) {
       setStatus(e?.message ? `Parse failed: ${e.message}` : "Parse failed.");
     } finally {
@@ -408,7 +450,6 @@ export default function Workflow() {
         }),
       });
 
-      // Update local UI with AI suggestion metadata
       setCards((prev) =>
         prev.map((c) => {
           if (c.id !== id) return c;
@@ -428,7 +469,6 @@ export default function Workflow() {
         })
       );
 
-      // If apply=true and changed, persist the new front/back
       if (apply && res.result.changed) {
         await persistCardEditIfPossible(id, res.result.front, res.result.back);
       }
@@ -458,7 +498,6 @@ export default function Workflow() {
 
     try {
       for (const c of cards) {
-        // only persisted cards
         if (!/^\d+$/.test(c.id)) continue;
         // eslint-disable-next-line no-await-in-loop
         await aiReviewCard(c.id, apply);
@@ -692,7 +731,13 @@ export default function Workflow() {
                             className="btn btn-xs btn-ghost"
                             disabled={busy || !canAI || !isPersisted}
                             onClick={() => aiReviewCard(c.id, false)}
-                            title={!isPersisted ? "Parse while logged in to persist cards" : canAI ? "AI Review this card" : "AI requires paid plan"}
+                            title={
+                              !isPersisted
+                                ? "Parse while logged in to persist cards"
+                                : canAI
+                                ? "AI Review this card"
+                                : "AI requires paid plan"
+                            }
                           >
                             AI Review
                           </button>
@@ -706,12 +751,7 @@ export default function Workflow() {
                             Apply AI
                           </button>
 
-                          <button
-                            className="btn btn-xs btn-ghost"
-                            disabled={busy}
-                            onClick={() => toggleEdit(c.id)}
-                            title="Toggle edit"
-                          >
+                          <button className="btn btn-xs btn-ghost" disabled={busy} onClick={() => toggleEdit(c.id)} title="Toggle edit">
                             {isEditing ? "Close" : "Edit"}
                           </button>
 
@@ -728,7 +768,6 @@ export default function Workflow() {
                         </div>
                       ) : null}
 
-                      {/* Preview always visible */}
                       <div className="text-xs font-semibold opacity-70">Front (preview)</div>
                       <pre className="whitespace-pre-wrap text-sm leading-relaxed bg-base-100/40 border border-base-300 rounded-xl p-3">
                         {previewFront}
@@ -739,7 +778,6 @@ export default function Workflow() {
                         {previewBack}
                       </pre>
 
-                      {/* Edit panel toggled */}
                       {isEditing && (
                         <div className="rounded-2xl border border-base-300 bg-base-100/50 p-3 space-y-3">
                           <div className="text-xs font-semibold opacity-70">Front (edit)</div>
@@ -749,7 +787,6 @@ export default function Workflow() {
                             onChange={(e) => {
                               const nextFront = e.target.value;
                               updateCardLocal(c.id, { front: nextFront });
-                              // persist best-effort (debounce not needed for now; minimal change)
                               void persistCardEditIfPossible(c.id, nextFront, c.back);
                             }}
                           />

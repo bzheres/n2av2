@@ -16,6 +16,8 @@ stripe.api_key = settings.STRIPE_SECRET_KEY
 @router.post("/webhook")
 async def webhook(request: Request, db: Session = Depends(get_db)):
     sig = request.headers.get("stripe-signature")
+    if not sig:
+        raise HTTPException(status_code=400, detail="Missing stripe-signature")
     payload = await request.body()
 
     if not settings.STRIPE_WEBHOOK_SECRET:
