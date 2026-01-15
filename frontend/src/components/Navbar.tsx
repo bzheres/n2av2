@@ -1,6 +1,8 @@
+// src/components/Navbar.tsx
 import React from "react";
-import { Link, NavLink } from "react-router-dom";
-import { me, logout } from "../auth";
+import { Link, NavLink, useNavigate } from "react-router-dom";
+import { logout } from "../auth";
+import { useAuth } from "../auth_state";
 
 const THEMES = [
   // Core / most useful
@@ -36,11 +38,15 @@ const THEMES = [
   "autumn",
   "acid",
   "lemonade",
-  "winter"
+  "winter",
 ];
 
 export default function Navbar() {
-  const [user, setUser] = React.useState<any>(null);
+  const navigate = useNavigate();
+
+  // ✅ Use global auth (prevents flicker + duplicate /auth/me calls)
+  const { user, setUser } = useAuth();
+
   const [theme, setTheme] = React.useState<string>(() => localStorage.getItem("n2a_theme") || "dark");
 
   React.useEffect(() => {
@@ -48,23 +54,31 @@ export default function Navbar() {
     localStorage.setItem("n2a_theme", theme);
   }, [theme]);
 
-  // Load user once on mount
-  React.useEffect(() => {
-    me().then(r => setUser(r.user)).catch(() => setUser(null));
-  }, []);
-
   async function doLogout() {
-    try { await logout(); } catch {}
+    try {
+      await logout();
+    } catch {
+      // ignore
+    }
+    // ✅ update global auth state immediately
     setUser(null);
-    window.location.href = "/account";
+    navigate("/account");
   }
 
   const navLinks = (
     <>
-      <li><NavLink to="/instructions">Instructions</NavLink></li>
-      <li><NavLink to="/workflow">Workflow</NavLink></li>
-      <li><NavLink to="/contact">Contact</NavLink></li>
-      <li><NavLink to="/about">About</NavLink></li>
+      <li>
+        <NavLink to="/instructions">Instructions</NavLink>
+      </li>
+      <li>
+        <NavLink to="/workflow">Workflow</NavLink>
+      </li>
+      <li>
+        <NavLink to="/contact">Contact</NavLink>
+      </li>
+      <li>
+        <NavLink to="/about">About</NavLink>
+      </li>
     </>
   );
 
@@ -75,27 +89,20 @@ export default function Navbar() {
         {/* Mobile dropdown (shows <lg) */}
         <div className="dropdown lg:hidden">
           <label tabIndex={0} className="btn btn-ghost btn-circle">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              className="h-5 w-5"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
             </svg>
           </label>
 
-          <ul
-            tabIndex={0}
-            className="menu menu-sm dropdown-content mt-3 z-[1] p-2 shadow bg-base-200 rounded-box w-56"
-          >
+          <ul tabIndex={0} className="menu menu-sm dropdown-content mt-3 z-[1] p-2 shadow bg-base-200 rounded-box w-56">
             {navLinks}
+
             <li className="mt-2">
               <Link to="/account" className="btn btn-primary btn-sm w-full">
                 {user ? user.username : "Login"}
               </Link>
             </li>
+
             {user && (
               <li className="mt-1">
                 <button className="btn btn-ghost btn-sm w-full" onClick={doLogout}>
@@ -108,31 +115,21 @@ export default function Navbar() {
 
         {/* Brand */}
         <Link to="/" className="btn btn-ghost px-2">
-          <img
-            src="/logo.svg"
-            alt="N2A"
-            className="h-8 w-auto md:h-9 lg:h-10 opacity-90 hover:opacity-100"
-          />
+          <img src="/logo.svg" alt="N2A" className="h-8 w-auto md:h-9 lg:h-10 opacity-90 hover:opacity-100" />
         </Link>
       </div>
 
       {/* CENTER: Desktop nav (shows lg+) */}
       <div className="navbar-center hidden lg:flex">
-        <ul className="menu menu-horizontal px-1 gap-1">
-          {navLinks}
-        </ul>
+        <ul className="menu menu-horizontal px-1 gap-1">{navLinks}</ul>
       </div>
 
       {/* RIGHT: Theme + Login/User + Logout (desktop) */}
       <div className="navbar-end gap-2">
-        <select
-          className="select select-bordered select-sm"
-          value={theme}
-          onChange={(e) => setTheme(e.target.value)}
-        >
-          {THEMES.map(t => (
+        <select className="select select-bordered select-sm" value={theme} onChange={(e) => setTheme(e.target.value)}>
+          {THEMES.map((t) => (
             <option key={t} value={t}>
-             {t.charAt(0).toUpperCase() + t.slice(1)}
+              {t.charAt(0).toUpperCase() + t.slice(1)}
             </option>
           ))}
         </select>
