@@ -1,6 +1,7 @@
 import React from "react";
-import { me, signup, login, logout, requestPasswordReset, resetPassword } from "../auth";
+import { signup, login, logout, requestPasswordReset, resetPassword } from "../auth";
 import { apiFetch } from "../api";
+import { useAuth } from "../auth_state";
 
 type PlanKey = "free" | "silver" | "gold" | "platinum";
 
@@ -35,7 +36,7 @@ function planCardClass(active: boolean) {
 }
 
 export default function Account() {
-  const [user, setUser] = React.useState<any>(null);
+  const { user, loading, refresh, setUser } = useAuth();
 
   const [mode, setMode] = React.useState<"login" | "signup">("login");
   const [username, setUsername] = React.useState("");
@@ -52,19 +53,6 @@ export default function Account() {
 
   const [checkoutBusy, setCheckoutBusy] = React.useState<null | PlanKey>(null);
 
-  async function refresh() {
-    try {
-      const r = await me();
-      setUser(r.user);
-    } catch {
-      setUser(null);
-    }
-  }
-
-  React.useEffect(() => {
-    refresh();
-  }, []);
-
   const currentPlan: PlanKey = normalizePlan(user?.plan);
 
   async function submitAuth() {
@@ -73,7 +61,8 @@ export default function Account() {
     try {
       if (mode === "signup") await signup(username || "User", email, password);
       else await login(email, password);
-      await refresh();
+
+      await refresh(); // pulls /auth/me and updates cache + context
     } catch (e: any) {
       setErr(e?.message || "Failed");
     } finally {
@@ -82,8 +71,12 @@ export default function Account() {
   }
 
   async function doLogout() {
-    await logout().catch(() => {});
-    await refresh();
+    try {
+      await logout();
+    } catch {
+      // ignore
+    }
+    setUser(null); // instant UI update
   }
 
   async function doCheckout(plan: "silver" | "gold" | "platinum") {
@@ -112,8 +105,8 @@ export default function Account() {
   }
 
   const usage = {
-    cardsMadeThisMonth: Number(user?.cards_made_this_month ?? user?.usage?.cards_made_this_month ?? 0),
-    aiReviewedThisMonth: Number(user?.ai_reviews_this_month ?? user?.usage?.ai_reviews_this_month ?? 0),
+    cardsMadeThisMonth: Number((user as any)?.cards_made_this_month ?? (user as any)?.usage?.cards_made_this_month ?? 0),
+    aiReviewedThisMonth: Number((user as any)?.ai_reviews_this_month ?? (user as any)?.usage?.ai_reviews_this_month ?? 0),
   };
 
   const plans: Array<{
@@ -183,8 +176,8 @@ export default function Account() {
         <button
           className="btn btn-primary w-full"
           onClick={doPortal}
-          disabled={!user?.stripe_customer_id}
-          title={!user?.stripe_customer_id ? "Stripe customer not linked yet" : ""}
+          disabled={!(user as any)?.stripe_customer_id}
+          title={!(user as any)?.stripe_customer_id ? "Stripe customer not linked yet" : ""}
         >
           Manage subscription
         </button>
@@ -194,13 +187,18 @@ export default function Account() {
     const isBusy = checkoutBusy === planKey;
 
     return (
-      <button
-        className="btn btn-outline w-full"
-        onClick={() => doCheckout(planKey as "silver" | "gold" | "platinum")}
-        disabled={!!checkoutBusy}
-      >
+      <button className="btn btn-outline w-full" onClick={() => doCheckout(planKey as "silver" | "gold" | "platinum")} disabled={!!checkoutBusy}>
         {isBusy ? "Redirecting…" : `Choose ${planLabel(planKey)}`}
       </button>
+    );
+  }
+
+  // IMPORTANT: this prevents guest UI flashing while auth is being revalidated
+  if (loading) {
+    return (
+      <div className="min-h-[60vh] flex items-center justify-center">
+        <span className="loading loading-spinner loading-lg" />
+      </div>
     );
   }
 
@@ -212,7 +210,7 @@ export default function Account() {
           <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
             <div>
               <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight">
-                Welcome, <span className="text-primary">{user ? user.username : "Guest"}</span>
+                Welcome, <span className="text-primary">{user ? (user as any).username : "Guest"}</span>
               </h1>
               <p className="opacity-80 mt-2 max-w-2xl">Manage your account, subscription, and AI review usage.</p>
             </div>
@@ -222,8 +220,8 @@ export default function Account() {
                 <button
                   className="btn btn-outline"
                   onClick={doPortal}
-                  disabled={!user?.stripe_customer_id}
-                  title={!user?.stripe_customer_id ? "Stripe customer not linked yet" : ""}
+                  disabled={!(user as any)?.stripe_customer_id}
+                  title={!(user as any)?.stripe_customer_id ? "Stripe customer not linked yet" : ""}
                 >
                   Manage subscription
                 </button>
@@ -260,7 +258,6 @@ export default function Account() {
 
                 {!user ? (
                   <>
-                    {/* ENTER submits (login/signup) */}
                     <form
                       className="space-y-3"
                       onSubmit={(e) => {
@@ -269,12 +266,7 @@ export default function Account() {
                       }}
                     >
                       {mode === "signup" && (
-                        <input
-                          className="input input-bordered w-full"
-                          placeholder="Username"
-                          value={username}
-                          onChange={(e) => setUsername(e.target.value)}
-                        />
+                        <input className="input input-bordered w-full" placeholder="Username" value={username} onChange={(e) => setUsername(e.target.value)} />
                       )}
 
                       <input
@@ -336,7 +328,6 @@ export default function Account() {
                     <details className="mt-2">
                       <summary className="cursor-pointer opacity-80">Reset with token (testing)</summary>
 
-                      {/* ENTER submits token reset */}
                       <form
                         className="mt-3 space-y-3"
                         onSubmit={async (e) => {
@@ -346,12 +337,7 @@ export default function Account() {
                           await refresh();
                         }}
                       >
-                        <input
-                          className="input input-bordered w-full"
-                          placeholder="Reset token"
-                          value={resetToken}
-                          onChange={(e) => setResetToken(e.target.value)}
-                        />
+                        <input className="input input-bordered w-full" placeholder="Reset token" value={resetToken} onChange={(e) => setResetToken(e.target.value)} />
                         <input
                           className="input input-bordered w-full"
                           placeholder="New password"
@@ -384,12 +370,12 @@ export default function Account() {
                 <div className="grid sm:grid-cols-2 gap-4">
                   <div className="p-4 rounded-2xl bg-base-100 border border-base-300">
                     <div className="text-sm opacity-70">Username</div>
-                    <div className="font-semibold text-lg">{user ? user.username : "Guest"}</div>
+                    <div className="font-semibold text-lg">{user ? (user as any).username : "Guest"}</div>
                   </div>
 
                   <div className="p-4 rounded-2xl bg-base-100 border border-base-300">
                     <div className="text-sm opacity-70">Email</div>
-                    <div className="font-semibold text-lg">{user ? user.email : "—"}</div>
+                    <div className="font-semibold text-lg">{user ? (user as any).email : "—"}</div>
                   </div>
 
                   <div className="p-4 rounded-2xl bg-base-100 border border-base-300">
@@ -399,7 +385,7 @@ export default function Account() {
 
                   <div className="p-4 rounded-2xl bg-base-100 border border-base-300">
                     <div className="text-sm opacity-70">Stripe linked</div>
-                    <div className="font-semibold text-lg">{user?.stripe_customer_id ? "Yes" : "No"}</div>
+                    <div className="font-semibold text-lg">{(user as any)?.stripe_customer_id ? "Yes" : "No"}</div>
                   </div>
                 </div>
 
