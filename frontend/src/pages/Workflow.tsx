@@ -8,7 +8,19 @@ type EnglishVariant = "us" | "uk_au";
 type McqStyle = "1)" | "1." | "A)" | "a)" | "A." | "a.";
 type FilterMode = "all" | "qa" | "mcq";
 
-type Card = { id: string; card_type: CardType; front: string; back: string };
+type Card = {
+  id: string; // keep string for UI (guest IDs), but persisted IDs will be numeric-as-string
+  card_type: CardType;
+  front: string;
+  back: string;
+
+  // AI fields (optional)
+  ai_changed?: boolean;
+  ai_flag?: string | null;
+  ai_feedback?: string | null;
+  ai_suggest_front?: string | null;
+  ai_suggest_back?: string | null;
+};
 
 function parseMarkdown(md: string): Omit<Card, "id">[] {
   const lines = md.split(/\r?\n/);
@@ -136,7 +148,6 @@ function formatMcqOptions(front: string, style: McqStyle): string {
   };
 
   const rebuilt = opts.map((o, i) => {
-    // If the option line already starts with a label like "A) ..." or "1. ...", strip it
     const cleaned = o.replace(/^\s*([A-Za-z]|\d+)[\)\.]\s+/, "").trim();
     return `${labelFor(i)} ${cleaned}`;
   });
@@ -145,12 +156,9 @@ function formatMcqOptions(front: string, style: McqStyle): string {
 }
 
 function formatMcqAnswer(back: string, style: McqStyle): string {
-  // Try to normalize to a single answer label; keep any extra explanation if present.
-  // Examples input: "B", "B)", "2", "2)", "Answer: B", "B - because ...", "B) Because ..."
   const raw = (back || "").trim();
   if (!raw) return raw;
 
-  // Capture leading token that looks like letter/number
   const m = raw.match(/^(\s*(answer:\s*)?)\s*([A-Za-z]|\d+)[\)\.\:]?\s*(.*)$/i);
   if (!m) return raw;
 
@@ -209,13 +217,16 @@ export default function Workflow() {
   // Edit toggle per-card
   const [editingIds, setEditingIds] = React.useState<Set<string>>(() => new Set());
 
+  // Persistence
+  const [projectId, setProjectId] = React.useState<number | null>(null);
+
   React.useEffect(() => {
     me().then((r) => setUser(r.user)).catch(() => setUser(null));
   }, []);
 
   const parsedCount = cards.length;
 
-  // Plan gating (keep same loose gating as before)
+  // Plan gating (same loose gating)
   const canAI = !!user && user.plan && user.plan !== "free" && user.plan !== "guest";
 
   const filteredCards = React.useMemo(() => {
@@ -231,27 +242,40 @@ export default function Workflow() {
     setCards([]);
     setStatus(null);
     setEditingIds(new Set());
+    setProjectId(null);
   }
 
-  function doParse() {
-    setStatus(null);
-    const parsed = parseMarkdown(raw).map((c) => ({ ...c, id: uid() }));
-    setCards(parsed);
-    setEditingIds(new Set());
-    setStatus(`Parsed ${parsed.length} card${parsed.length === 1 ? "" : "s"}.`);
-  }
-
-  function updateCard(id: string, patch: Partial<Pick<Card, "front" | "back">>) {
+  function updateCardLocal(id: string, patch: Partial<Pick<Card, "front" | "back">>) {
     setCards((prev) => prev.map((c) => (c.id === id ? { ...c, ...patch } : c)));
   }
 
-  function deleteCard(id: string) {
+  async function persistCardEditIfPossible(id: string, front: string, back: string) {
+    // Only persist if this looks like a DB ID and we have a projectId
+    if (!projectId) return;
+    if (!/^\d+$/.test(id)) return;
+
+    try {
+      await apiFetch(`/cards/${Number(id)}`, { method: "PATCH", body: JSON.stringify({ front, back }) });
+    } catch {
+      // keep silent; UI already updated locally
+    }
+  }
+
+  async function deleteCard(id: string) {
     setCards((prev) => prev.filter((c) => c.id !== id));
     setEditingIds((prev) => {
       const next = new Set(prev);
       next.delete(id);
       return next;
     });
+
+    if (projectId && /^\d+$/.test(id)) {
+      try {
+        await apiFetch(`/cards/${Number(id)}`, { method: "DELETE" });
+      } catch {
+        // ignore
+      }
+    }
   }
 
   function toggleEdit(id: string) {
@@ -263,8 +287,63 @@ export default function Workflow() {
     });
   }
 
+  async function doParse() {
+    setStatus(null);
+    setBusy(true);
+
+    try {
+      const parsedLocal = parseMarkdown(raw);
+
+      // Guest mode: local-only
+      if (!user) {
+        const localCards = parsedLocal.map((c) => ({ ...c, id: uid() }));
+        setCards(localCards);
+        setEditingIds(new Set());
+        setProjectId(null);
+        setStatus(`Parsed ${localCards.length} card${localCards.length === 1 ? "" : "s"} (guest mode).`);
+        return;
+      }
+
+      // Logged-in: create project + persist cards
+      const baseName = (filename || "N2A Project").replace(/\.md$/i, "").trim() || "N2A Project";
+      const pr = await apiFetch<{ project: { id: number } }>("/projects", {
+        method: "POST",
+        body: JSON.stringify({ name: baseName }),
+      });
+      const pid = pr.project.id;
+      setProjectId(pid);
+
+      const cr = await apiFetch<{ cards: Array<{ id: number; card_type: CardType; front: string; back: string }> }>("/cards", {
+        method: "POST",
+        body: JSON.stringify({
+          project_id: pid,
+          cards: parsedLocal.map((c) => ({
+            card_type: c.card_type,
+            front: c.front,
+            back: c.back,
+            raw: undefined,
+          })),
+        }),
+      });
+
+      const persisted = cr.cards.map((c) => ({
+        id: String(c.id),
+        card_type: c.card_type,
+        front: c.front,
+        back: c.back,
+      }));
+
+      setCards(persisted);
+      setEditingIds(new Set());
+      setStatus(`Parsed & saved ${persisted.length} card${persisted.length === 1 ? "" : "s"} to Project #${pid}.`);
+    } catch (e: any) {
+      setStatus(e?.message ? `Parse failed: ${e.message}` : "Parse failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function exportCSV() {
-    // Apply MCQ formatting style at export-time (front + back)
     const exportedCards = cards.map((c) =>
       c.card_type === "mcq"
         ? { ...c, front: formatMcqOptions(c.front, mcqStyle), back: formatMcqAnswer(c.back, mcqStyle) }
@@ -272,9 +351,7 @@ export default function Workflow() {
     );
 
     const rows = [["Front", "Back"], ...exportedCards.map((c) => [c.front, c.back])];
-    const csv = rows
-      .map((r) => r.map((v) => `"${String(v).replaceAll('"', '""')}"`).join(","))
-      .join("\n");
+    const csv = rows.map((r) => r.map((v) => `"${String(v).replaceAll('"', '""')}"`).join(",")).join("\n");
 
     const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
@@ -285,10 +362,22 @@ export default function Workflow() {
     URL.revokeObjectURL(url);
   }
 
-  // ---- AI Review ----
-  async function aiReviewCard(id: string) {
+  // ---- AI Review (persist + review) ----
+  function toStripeVariant(v: EnglishVariant): "en-AU" | "en-US" {
+    return v === "us" ? "en-US" : "en-AU";
+  }
+
+  async function aiReviewCard(id: string, apply: boolean) {
     if (!canAI) {
       setStatus("AI Review is available on paid plans. Please subscribe in Account.");
+      return;
+    }
+    if (!projectId) {
+      setStatus("No project saved yet. Press Parse while logged in to save cards first.");
+      return;
+    }
+    if (!/^\d+$/.test(id)) {
+      setStatus("This card is not saved (guest/local). Parse while logged in to enable AI.");
       return;
     }
 
@@ -296,56 +385,85 @@ export default function Workflow() {
     if (!card) return;
 
     setBusy(true);
-    setStatus("Running AI review…");
+    setStatus(apply ? "Applying AI review…" : "Running AI review…");
+
     try {
-      const payload = {
-        card_type: card.card_type,
-        front: card.card_type === "mcq" ? formatMcqOptions(card.front, mcqStyle) : card.front,
-        back: card.card_type === "mcq" ? formatMcqAnswer(card.back, mcqStyle) : card.back,
-        english_variant: englishVariant,
-      };
+      const res = await apiFetch<{
+        ok: boolean;
+        result: {
+          changed: boolean;
+          flag?: string | null;
+          feedback?: string | null;
+          front: string;
+          back: string;
+        };
+        usage?: { used: number; limit: number };
+      }>("/ai/review", {
+        method: "POST",
+        body: JSON.stringify({
+          project_id: projectId,
+          card_id: Number(id),
+          variant: toStripeVariant(englishVariant),
+          apply,
+        }),
+      });
 
-      let res: any = null;
-      try {
-        res = await apiFetch("/ai/review", { method: "POST", body: JSON.stringify(payload) });
-      } catch {
-        res = await apiFetch("/ai/review-card", { method: "POST", body: JSON.stringify(payload) });
-      }
-
-      if (res?.front || res?.back) {
-        updateCard(id, {
-          front: res.front ?? card.front,
-          back: res.back ?? card.back,
-        });
-      }
-
-      setStatus(res?.notes ? `AI Review: ${res.notes}` : "AI Review complete.");
-    } catch (e: any) {
-      setStatus(
-        e?.message
-          ? `AI Review failed: ${e.message}`
-          : "AI Review failed. Backend route may not be enabled yet."
+      // Update local UI with AI suggestion metadata
+      setCards((prev) =>
+        prev.map((c) => {
+          if (c.id !== id) return c;
+          const next: Card = {
+            ...c,
+            ai_changed: !!res.result.changed,
+            ai_flag: res.result.flag ?? null,
+            ai_feedback: res.result.feedback ?? null,
+            ai_suggest_front: res.result.front,
+            ai_suggest_back: res.result.back,
+          };
+          if (apply && res.result.changed) {
+            next.front = res.result.front;
+            next.back = res.result.back;
+          }
+          return next;
+        })
       );
+
+      // If apply=true and changed, persist the new front/back
+      if (apply && res.result.changed) {
+        await persistCardEditIfPossible(id, res.result.front, res.result.back);
+      }
+
+      const usageText = res.usage ? ` (${res.usage.used}/${res.usage.limit})` : "";
+      setStatus((apply ? "AI applied." : "AI review complete.") + usageText);
+    } catch (e: any) {
+      setStatus(e?.message ? `AI Review failed: ${e.message}` : "AI Review failed.");
     } finally {
       setBusy(false);
     }
   }
 
-  async function aiReviewAll() {
+  async function aiReviewAll(apply: boolean) {
     if (!canAI) {
       setStatus("AI Review is available on paid plans. Please subscribe in Account.");
+      return;
+    }
+    if (!projectId) {
+      setStatus("No project saved yet. Press Parse while logged in to save cards first.");
       return;
     }
     if (!cards.length) return;
 
     setBusy(true);
-    setStatus("Running AI review on all cards…");
+    setStatus(apply ? "Applying AI to all cards…" : "Running AI review on all cards…");
+
     try {
       for (const c of cards) {
+        // only persisted cards
+        if (!/^\d+$/.test(c.id)) continue;
         // eslint-disable-next-line no-await-in-loop
-        await aiReviewCard(c.id);
+        await aiReviewCard(c.id, apply);
       }
-      setStatus("AI Review completed for all cards.");
+      setStatus(apply ? "AI applied to all saved cards." : "AI review completed for all saved cards.");
     } catch (e: any) {
       setStatus(e?.message ? `AI Review failed: ${e.message}` : "AI Review failed.");
     } finally {
@@ -370,6 +488,12 @@ export default function Workflow() {
               {user ? `Logged in (${user.plan})` : "Guest mode"}
             </div>
           </div>
+
+          {user && projectId ? (
+            <div className="flex justify-center">
+              <div className="badge badge-outline">Project #{projectId}</div>
+            </div>
+          ) : null}
         </div>
       </section>
 
@@ -391,6 +515,7 @@ export default function Workflow() {
                   setCards([]);
                   setEditingIds(new Set());
                   setStatus(null);
+                  setProjectId(null);
                 }}
               />
 
@@ -418,7 +543,11 @@ export default function Workflow() {
               <div className="flex items-start justify-between gap-3 flex-wrap">
                 <div>
                   <h2 className="text-xl font-bold">2) Parse & Review</h2>
-                  <p className="text-sm opacity-70">Parse your file, tune formatting, then edit cards below.</p>
+                  <p className="text-sm opacity-70">
+                    {user
+                      ? "Parse creates a Project and saves cards for persistent AI review."
+                      : "Parse locally, edit, export. Login to persist + AI review."}
+                  </p>
                 </div>
 
                 <div className="flex flex-wrap gap-2">
@@ -451,7 +580,7 @@ export default function Workflow() {
 
                 <div className="rounded-2xl border border-base-300 bg-base-200/40 p-4 space-y-2">
                   <div className="text-sm font-semibold">MCQ option style</div>
-                  <div className="text-xs opacity-70">Affects preview/export/AI input (not parsing).</div>
+                  <div className="text-xs opacity-70">Affects preview/export and what AI sees.</div>
                   <select
                     className="select select-bordered w-full"
                     value={mcqStyle}
@@ -468,7 +597,7 @@ export default function Workflow() {
 
                 <div className="rounded-2xl border border-base-300 bg-base-200/40 p-4 space-y-2">
                   <div className="text-sm font-semibold">AI English (paid)</div>
-                  <div className="text-xs opacity-70">Paid users can pick the AI review variant.</div>
+                  <div className="text-xs opacity-70">Controls AI output style.</div>
                   <select
                     className="select select-bordered w-full"
                     value={englishVariant}
@@ -494,17 +623,20 @@ export default function Workflow() {
                 <button className="btn btn-secondary" disabled={!parsedCount || busy} onClick={exportCSV}>
                   Export CSV
                 </button>
-                <button className="btn btn-ghost" disabled={!parsedCount || busy || !canAI} onClick={aiReviewAll}>
+                <button className="btn btn-ghost" disabled={!parsedCount || busy || !canAI} onClick={() => aiReviewAll(false)}>
                   AI Review all
+                </button>
+                <button className="btn btn-ghost" disabled={!parsedCount || busy || !canAI} onClick={() => aiReviewAll(true)}>
+                  Apply AI all
                 </button>
               </div>
 
               <div className="text-sm opacity-75">
                 Tips:
                 <ul className="list-disc ml-5 mt-1">
-                  <li>Use Filter to quickly scan MCQs or Q&As.</li>
-                  <li>MCQ style updates preview/export and what the AI sees.</li>
-                  <li>Edits only show when you click “Edit” per card.</li>
+                  <li>When logged in, Parse creates a saved Project so AI can reference card IDs.</li>
+                  <li>MCQ style changes preview/export and what AI sees.</li>
+                  <li>Manual edits are persisted for saved cards.</li>
                 </ul>
               </div>
             </div>
@@ -543,6 +675,8 @@ export default function Workflow() {
                 const previewFront = c.card_type === "mcq" ? formatMcqOptions(c.front, mcqStyle) : c.front;
                 const previewBack = c.card_type === "mcq" ? formatMcqAnswer(c.back, mcqStyle) : c.back;
 
+                const isPersisted = /^\d+$/.test(c.id) && !!projectId;
+
                 return (
                   <div
                     key={c.id}
@@ -556,11 +690,20 @@ export default function Workflow() {
                         <div className="flex gap-2">
                           <button
                             className="btn btn-xs btn-ghost"
-                            disabled={busy || !canAI}
-                            onClick={() => aiReviewCard(c.id)}
-                            title={canAI ? "AI Review this card" : "AI Review requires a paid plan"}
+                            disabled={busy || !canAI || !isPersisted}
+                            onClick={() => aiReviewCard(c.id, false)}
+                            title={!isPersisted ? "Parse while logged in to persist cards" : canAI ? "AI Review this card" : "AI requires paid plan"}
                           >
                             AI Review
+                          </button>
+
+                          <button
+                            className="btn btn-xs btn-ghost"
+                            disabled={busy || !canAI || !isPersisted}
+                            onClick={() => aiReviewCard(c.id, true)}
+                            title={!isPersisted ? "Parse while logged in to persist cards" : "Apply AI suggestion to this card"}
+                          >
+                            Apply AI
                           </button>
 
                           <button
@@ -572,16 +715,18 @@ export default function Workflow() {
                             {isEditing ? "Close" : "Edit"}
                           </button>
 
-                          <button
-                            className="btn btn-xs btn-ghost"
-                            disabled={busy}
-                            onClick={() => deleteCard(c.id)}
-                            title="Delete card"
-                          >
+                          <button className="btn btn-xs btn-ghost" disabled={busy} onClick={() => deleteCard(c.id)} title="Delete card">
                             Delete
                           </button>
                         </div>
                       </div>
+
+                      {c.ai_feedback ? (
+                        <div className="rounded-xl border border-base-300 bg-base-100/40 p-3">
+                          <div className="text-xs font-semibold opacity-70">AI feedback</div>
+                          <div className="text-sm whitespace-pre-wrap opacity-80">{c.ai_feedback}</div>
+                        </div>
+                      ) : null}
 
                       {/* Preview always visible */}
                       <div className="text-xs font-semibold opacity-70">Front (preview)</div>
@@ -601,14 +746,23 @@ export default function Workflow() {
                           <textarea
                             className="textarea textarea-bordered w-full min-h-[96px] text-sm leading-relaxed"
                             value={c.front}
-                            onChange={(e) => updateCard(c.id, { front: e.target.value })}
+                            onChange={(e) => {
+                              const nextFront = e.target.value;
+                              updateCardLocal(c.id, { front: nextFront });
+                              // persist best-effort (debounce not needed for now; minimal change)
+                              void persistCardEditIfPossible(c.id, nextFront, c.back);
+                            }}
                           />
 
                           <div className="text-xs font-semibold opacity-70">Back (edit)</div>
                           <textarea
                             className="textarea textarea-bordered w-full min-h-[96px] text-sm leading-relaxed"
                             value={c.back}
-                            onChange={(e) => updateCard(c.id, { back: e.target.value })}
+                            onChange={(e) => {
+                              const nextBack = e.target.value;
+                              updateCardLocal(c.id, { back: nextBack });
+                              void persistCardEditIfPossible(c.id, c.front, nextBack);
+                            }}
                           />
                         </div>
                       )}
