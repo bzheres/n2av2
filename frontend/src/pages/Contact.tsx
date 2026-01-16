@@ -38,7 +38,7 @@ export default function Contact() {
               </p>
 
               <a
-                href="mailto:support@n2a.com.au"
+                href="mailto:admin@n2a.com.au"
                 className="btn btn-primary w-fit"
               >
                 support@n2a.com.au
