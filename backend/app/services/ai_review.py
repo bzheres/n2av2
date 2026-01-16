@@ -17,28 +17,53 @@ class AIResult(TypedDict):
     back: str
 
 
-SYSTEM_PROMPT_CONTENT = """You are reviewing flashcards for spaced-repetition learning.
+# ---------------------------------------------------------------------
+# Language variant policy: force US vs UK/AUS normalisation when mode
+# includes "content" or "both". This is what makes the toggle "actually
+# do something" even when the card is otherwise clear/correct.
+# ---------------------------------------------------------------------
+LANGUAGE_VARIANT_POLICY = """LANGUAGE VARIANT RULE (mandatory where applicable):
+- You MUST normalise spelling and medical terminology to the requested language variant.
+- Apply this to BOTH Front and Back.
+- If any word(s) are in the "other" variant, you MUST correct them and set changed=true.
+
+Examples (not exhaustive):
+- en-US: color, center, pediatric, anesthesia, optimize, hemorrhage, aluminum, esophagus, meter, liter
+- en-AU (UK/AUS): colour, centre, paediatric, anaesthesia, optimise, haemorrhage, aluminium, oesophagus, metre, litre
+
+If no variant changes are needed AND no other improvements are needed:
+- Set changed=false and return the original text unchanged.
+"""
+
+
+SYSTEM_PROMPT_CONTENT = f"""You are reviewing flashcards for spaced-repetition learning.
 
 CRITICAL RULES (must follow):
 - DO NOT add new information
 - DO NOT expand answers
 - DO NOT invent examples
 - DO NOT change meaning
-- DO NOT "improve" cards that are already clear and correct
 
-You MAY:
-- Fix spelling and grammar (English US vs English UK/AUS)
+{LANGUAGE_VARIANT_POLICY}
+
+You MAY (only if needed, and without changing meaning):
+- Fix typos/grammar consistent with the requested variant
 - Rephrase wording ONLY if confusing or ambiguous
 - Flag ambiguity if multiple interpretations exist
 
-If the card is already clear and correct:
+If the card is already clear and correct AND no language-variant changes are needed:
 - Set changed = false
 - Return the original text unchanged
 - flag = "ok"
 
+If you changed ONLY spelling/variant normalisation:
+- flag = "variant_normalised"
+- feedback should briefly note that spelling/terminology was normalised.
+
 Return ONLY valid JSON with keys:
 changed, flag, feedback, front, back
 """
+
 
 SYSTEM_PROMPT_FORMAT = """You are formatting flashcards for spaced-repetition learning (Anki-style readability).
 
@@ -58,9 +83,10 @@ Formatting goals:
   - Use bullets (-) or numbering (1., 2., 3.)
   - Use **bold** for key labels/terms (sparingly)
 - If the FRONT has multiple lines, keep it clean and consistent.
-- If already nicely formatted, set changed=false and return original.
 
 IMPORTANT:
+- In FORMAT mode, do NOT do spelling/variant conversions unless they are required to
+  fix a genuine typo. (Variant is handled in "content" or "both" modes.)
 - “Changed” should be true if you changed formatting/structure, even if meaning is identical.
 - flag should be "format_ok" if unchanged or "format_changed" if you changed formatting.
 
@@ -68,7 +94,8 @@ Return ONLY valid JSON with keys:
 changed, flag, feedback, front, back
 """
 
-SYSTEM_PROMPT_BOTH = """You are reviewing AND formatting flashcards for spaced-repetition learning.
+
+SYSTEM_PROMPT_BOTH = f"""You are reviewing AND formatting flashcards for spaced-repetition learning.
 
 CRITICAL RULES (must follow):
 - DO NOT add new information
@@ -76,15 +103,20 @@ CRITICAL RULES (must follow):
 - DO NOT expand answers
 - DO NOT invent examples
 - DO NOT change meaning
-- You may fix spelling/grammar, and improve clarity ONLY if needed
-- You should also improve formatting/readability as per Anki-style
+
+{LANGUAGE_VARIANT_POLICY}
+
+You may:
+- Fix spelling/grammar consistent with the requested variant
+- Improve clarity ONLY if needed (no new information)
+- Improve formatting/readability as per Anki-style
 
 Formatting goals:
 - Make the BACK easy to skim: use short lines, bullets/numbering, and clear labels
 - Preserve equations/symbols and units
 - Use simple Markdown: blank lines, bullets, and **bold** labels sparingly
 
-If the card is already clear and nicely formatted:
+If the card is already clear and nicely formatted AND no language-variant changes are needed:
 - Set changed=false and return original
 - flag="ok"
 
