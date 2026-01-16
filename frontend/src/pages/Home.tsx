@@ -90,11 +90,11 @@ export default function Home() {
           <div className="text-center space-y-5">
             <h1 className="text-4xl md:text-6xl font-extrabold tracking-tight leading-tight">
               Turn <span className="text-primary">Notion</span> notes into <span className="text-primary">Anki</span>{" "}
-              cards — <span className="text-primary">fast</span>.
+              cards — <span className="text-primary">fast</span>
             </h1>
 
             <p className="opacity-80 max-w-2xl mx-auto text-base md:text-lg">
-              Upload a Notion Markdown export, generate cards, preview, edit, then export CSV to Anki. Optional AI review
+              Simply upload a Notion Markdown export, generate cards, preview, edit, then export CSV to Anki to begin learning! Optional AI review
               on paid plans.
             </p>
 
@@ -110,7 +110,6 @@ export default function Home() {
               </Link>
             </div>
 
-            <div className="text-xs md:text-sm opacity-60">Built for speed. Designed for clean output. Made for spaced repetition.</div>
           </div>
         </div>
       </section>
@@ -184,9 +183,8 @@ export default function Home() {
         <div className="max-w-6xl mx-auto">
           <div className="text-center mb-8">
             <h2 className="text-2xl md:text-3xl font-bold">
-              Preview exactly what <span className="text-primary">Workflow</span> generates
+              Preview what <span className="text-primary">Workflow</span> generates
             </h2>
-            <p className="opacity-75 mt-2">Same look, same structure — so you know what will export to Anki.</p>
           </div>
 
           <div className="grid lg:grid-cols-2 gap-5">
