@@ -8,6 +8,8 @@ type EnglishVariant = "us" | "uk_au";
 type McqStyle = "1)" | "1." | "A)" | "a)" | "A." | "a.";
 type FilterMode = "all" | "qa" | "mcq";
 
+type AIMode = "content" | "format" | "both";
+
 type Card = {
   id: string; // UI keeps string IDs; persisted IDs are numeric-as-string
   card_type: CardType;
@@ -224,7 +226,17 @@ export default function Workflow() {
   // Local UI memory: mark cards "reviewed" even if backend returns null AI fields
   const [aiReviewedIds, setAiReviewedIds] = React.useState<Set<string>>(() => new Set());
 
-  // ---- Auth load (no flicker) ----
+  // Batch progress
+  const [batch, setBatch] = React.useState<{
+    running: boolean;
+    total: number;
+    done: number;
+    errors: number;
+    mode: AIMode | null;
+    apply: boolean;
+  }>({ running: false, total: 0, done: 0, errors: 0, mode: null, apply: false });
+
+  // ---- Auth load ----
   React.useEffect(() => {
     let alive = true;
     meCached(false)
@@ -254,7 +266,6 @@ export default function Workflow() {
       try {
         const latest = await apiFetch<{ project: { id: number; name?: string } | null }>("/projects/latest");
         if (!alive) return;
-
         if (!latest.project) return;
 
         const pid = latest.project.id;
@@ -280,7 +291,7 @@ export default function Workflow() {
           setStatus(`Resumed Project #${pid} (${loaded.length} cards).`);
         }
       } catch {
-        // silent; don’t block the page
+        // silent
       }
     })();
 
@@ -307,6 +318,7 @@ export default function Workflow() {
     setEditingIds(new Set());
     setProjectId(null);
     setAiReviewedIds(new Set());
+    setBatch({ running: false, total: 0, done: 0, errors: 0, mode: null, apply: false });
   }
 
   function updateCardLocal(id: string, patch: Partial<Pick<Card, "front" | "back">>) {
@@ -316,7 +328,6 @@ export default function Workflow() {
   async function persistCardEditIfPossible(id: string, front: string, back: string) {
     if (!projectId) return;
     if (!/^\d+$/.test(id)) return;
-
     try {
       await apiFetch(`/cards/${Number(id)}`, { method: "PATCH", body: JSON.stringify({ front, back }) });
     } catch {
@@ -431,12 +442,11 @@ export default function Workflow() {
     URL.revokeObjectURL(url);
   }
 
-  // ---- AI Review ----
   function toAiVariant(v: EnglishVariant): "en-AU" | "en-US" {
     return v === "us" ? "en-US" : "en-AU";
   }
 
-  async function aiReviewCard(id: string, apply: boolean) {
+  async function aiReviewCard(id: string, apply: boolean, mode: AIMode) {
     if (!canAI) {
       setStatus("AI Review is available on paid plans. Please subscribe in Account.");
       return;
@@ -450,74 +460,88 @@ export default function Workflow() {
       return;
     }
 
-    setBusy(true);
-    setStatus(apply ? "Applying AI review…" : "Running AI review…");
-
+    // Mark as reviewed immediately for UI
     setAiReviewedIds((prev) => {
       const next = new Set(prev);
       next.add(id);
       return next;
     });
 
-    try {
-      const res = await apiFetch<{
-        ok: boolean;
-        result: {
-          changed: boolean;
-          flag?: string | null;
-          feedback?: string | null;
-          front: string;
-          back: string;
+    const res = await apiFetch<{
+      ok: boolean;
+      result: {
+        changed: boolean;
+        flag?: string | null;
+        feedback?: string | null;
+        front: string;
+        back: string;
+      };
+      usage?: { used: number; limit: number };
+    }>("/ai/review", {
+      method: "POST",
+      body: JSON.stringify({
+        project_id: projectId,
+        card_id: Number(id),
+        variant: toAiVariant(englishVariant),
+        apply,
+        mode,
+      }),
+    });
+
+    const changed = !!res.result.changed;
+    const flag = res.result.flag ?? "ok";
+    const feedback = (res.result.feedback ?? "").trim();
+
+    setCards((prev) =>
+      prev.map((c) => {
+        if (c.id !== id) return c;
+
+        const next: Card = {
+          ...c,
+          ai_changed: changed,
+          ai_flag: flag,
+          ai_feedback:
+            feedback ||
+            (changed
+              ? mode === "format"
+                ? "AI suggested formatting improvements (see suggested front/back)."
+                : "AI suggested improvements (see suggested front/back)."
+              : "Looks good — no changes suggested."),
+          ai_suggest_front: res.result.front ?? null,
+          ai_suggest_back: res.result.back ?? null,
         };
-        usage?: { used: number; limit: number };
-      }>("/ai/review", {
-        method: "POST",
-        body: JSON.stringify({
-          project_id: projectId,
-          card_id: Number(id),
-          variant: toAiVariant(englishVariant),
-          apply,
-        }),
-      });
 
-      const changed = !!res.result.changed;
-      const flag = res.result.flag ?? "ok";
-      const feedback = (res.result.feedback ?? "").trim();
+        if (apply && changed) {
+          next.front = res.result.front;
+          next.back = res.result.back;
+        }
+        return next;
+      })
+    );
 
-      setCards((prev) =>
-        prev.map((c) => {
-          if (c.id !== id) return c;
-          const next: Card = {
-            ...c,
-            ai_changed: changed,
-            ai_flag: flag,
-            ai_feedback: feedback || (changed ? "AI suggested improvements (see suggested front/back)." : "Looks good — no changes suggested."),
-            ai_suggest_front: res.result.front ?? null,
-            ai_suggest_back: res.result.back ?? null,
-          };
-
-          if (apply && changed) {
-            next.front = res.result.front;
-            next.back = res.result.back;
-          }
-          return next;
-        })
-      );
-
-      if (apply && changed) {
-        await persistCardEditIfPossible(id, res.result.front, res.result.back);
-      }
-
-      const usageText = res.usage ? ` (${res.usage.used}/${res.usage.limit})` : "";
-      setStatus((apply ? "AI applied." : "AI review complete.") + usageText);
-    } catch (e: any) {
-      setStatus(e?.message ? `AI Review failed: ${e.message}` : "AI Review failed.");
-    } finally {
-      setBusy(false);
+    if (apply && changed) {
+      await persistCardEditIfPossible(id, res.result.front, res.result.back);
     }
+
+    return res;
   }
 
-  async function aiReviewAll(apply: boolean) {
+  // Simple concurrency limiter (no dependency)
+  async function runWithConcurrency<T>(items: T[], limit: number, worker: (item: T) => Promise<void>) {
+    const queue = [...items];
+    const runners: Promise<void>[] = [];
+    const runOne = async () => {
+      while (queue.length) {
+        const item = queue.shift()!;
+        await worker(item);
+      }
+    };
+    const n = Math.max(1, Math.min(limit, items.length || 1));
+    for (let i = 0; i < n; i++) runners.push(runOne());
+    await Promise.all(runners);
+  }
+
+  async function aiReviewAll(apply: boolean, mode: AIMode) {
     if (!canAI) {
       setStatus("AI Review is available on paid plans. Please subscribe in Account.");
       return;
@@ -526,26 +550,40 @@ export default function Workflow() {
       setStatus("No project saved yet. Press Parse while logged in to save cards first.");
       return;
     }
-    if (!cards.length) return;
+    const saved = cards.filter((c) => /^\d+$/.test(c.id));
+    if (!saved.length) return;
 
     setBusy(true);
-    setStatus(apply ? "Applying AI to all cards…" : "Running AI review on all cards…");
+    setBatch({ running: true, total: saved.length, done: 0, errors: 0, mode, apply });
+
+    const label =
+      mode === "format" ? (apply ? "Applying AI formatting…" : "Reviewing formatting…") : mode === "both" ? (apply ? "Applying AI (content+format)…" : "Reviewing (content+format)…") : apply ? "Applying AI content…" : "Reviewing content…";
+
+    setStatus(label);
+
+    const concurrency = 5; // safe default; adjust to 8-10 later if your backend/OpenAI rate limits allow
 
     try {
-      for (const c of cards) {
-        if (!/^\d+$/.test(c.id)) continue;
-        // eslint-disable-next-line no-await-in-loop
-        await aiReviewCard(c.id, apply);
-      }
-      setStatus(apply ? "AI applied to all saved cards." : "AI review completed for all saved cards.");
-    } catch (e: any) {
-      setStatus(e?.message ? `AI Review failed: ${e.message}` : "AI Review failed.");
+      await runWithConcurrency(saved, concurrency, async (c) => {
+        try {
+          await aiReviewCard(c.id, apply, mode);
+          setBatch((b) => ({ ...b, done: b.done + 1 }));
+        } catch {
+          setBatch((b) => ({ ...b, done: b.done + 1, errors: b.errors + 1 }));
+        }
+      });
+
+      setStatus(
+        apply
+          ? `AI complete: applied ${mode} to ${saved.length} card(s).`
+          : `AI complete: reviewed ${mode} for ${saved.length} card(s).`
+      );
     } finally {
+      setBatch((b) => ({ ...b, running: false }));
       setBusy(false);
     }
   }
 
-  // ---- Render guard (smooth auth) ----
   if (authLoading) {
     return (
       <div className="min-h-[60vh] flex items-center justify-center">
@@ -553,6 +591,8 @@ export default function Workflow() {
       </div>
     );
   }
+
+  const progressPct = batch.total ? Math.round((batch.done / batch.total) * 100) : 0;
 
   return (
     <div className="-mx-4 md:-mx-6 lg:-mx-8">
@@ -562,9 +602,7 @@ export default function Workflow() {
           <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight">
             Workflow: <span className="text-primary">Upload</span> → Parse → Review → Export
           </h1>
-          <p className="opacity-75 max-w-2xl mx-auto">
-            Parse locally, edit freely, export clean CSV for Anki. AI review is available on paid plans.
-          </p>
+          <p className="opacity-75 max-w-2xl mx-auto">Parse locally, edit freely, export clean CSV for Anki. AI review is available on paid plans.</p>
 
           <div className="flex justify-center pt-2">
             <div className={["badge badge-lg", user ? "badge-primary badge-outline" : "badge-ghost"].join(" ")}>
@@ -596,12 +634,12 @@ export default function Workflow() {
                   setRaw(t);
                   setFilename(n);
 
-                  // new upload = new session, clear current cards/project
                   setCards([]);
                   setEditingIds(new Set());
                   setStatus(null);
                   setProjectId(null);
                   setAiReviewedIds(new Set());
+                  setBatch({ running: false, total: 0, done: 0, errors: 0, mode: null, apply: false });
                 }}
               />
 
@@ -612,6 +650,21 @@ export default function Workflow() {
               {status && (
                 <div className="alert">
                   <span>{status}</span>
+                </div>
+              )}
+
+              {batch.running && (
+                <div className="rounded-2xl border border-base-300 bg-base-100/50 p-4 space-y-2">
+                  <div className="flex items-center justify-between text-sm">
+                    <div className="font-semibold">AI Progress</div>
+                    <div className="opacity-70">
+                      {batch.done}/{batch.total} ({progressPct}%){batch.errors ? ` • errors: ${batch.errors}` : ""}
+                    </div>
+                  </div>
+                  <progress className="progress progress-primary w-full" value={batch.done} max={batch.total} />
+                  <div className="text-xs opacity-70">
+                    Mode: <span className="font-semibold">{batch.mode}</span> • {batch.apply ? "Applying" : "Reviewing"}
+                  </div>
                 </div>
               )}
 
@@ -689,22 +742,42 @@ export default function Workflow() {
               </div>
 
               {/* Action buttons */}
-              <div className="flex flex-col sm:flex-row gap-3 pt-1">
-                <button className="btn btn-primary" disabled={!raw || busy} onClick={doParse}>
-                  Parse
-                </button>
-                <button className="btn btn-outline" disabled={busy} onClick={clearAll}>
-                  Clear
-                </button>
-                <button className="btn btn-secondary" disabled={!parsedCount || busy} onClick={exportCSV}>
-                  Export CSV
-                </button>
-                <button className="btn btn-ghost" disabled={!parsedCount || busy || !canAI} onClick={() => aiReviewAll(false)}>
-                  AI Review all
-                </button>
-                <button className="btn btn-ghost" disabled={!parsedCount || busy || !canAI} onClick={() => aiReviewAll(true)}>
-                  Apply AI all
-                </button>
+              <div className="flex flex-col gap-3 pt-1">
+                <div className="flex flex-col sm:flex-row gap-3">
+                  <button className="btn btn-primary" disabled={!raw || busy} onClick={doParse}>
+                    Parse
+                  </button>
+                  <button className="btn btn-outline" disabled={busy} onClick={clearAll}>
+                    Clear
+                  </button>
+                  <button className="btn btn-secondary" disabled={!parsedCount || busy} onClick={exportCSV}>
+                    Export CSV
+                  </button>
+                </div>
+
+                <div className="flex flex-col sm:flex-row gap-3">
+                  <button className="btn btn-ghost" disabled={!parsedCount || busy || !canAI} onClick={() => void aiReviewAll(false, "content")}>
+                    AI Review all (content)
+                  </button>
+                  <button className="btn btn-ghost" disabled={!parsedCount || busy || !canAI} onClick={() => void aiReviewAll(false, "format")}>
+                    AI Review all (format)
+                  </button>
+                  <button className="btn btn-ghost" disabled={!parsedCount || busy || !canAI} onClick={() => void aiReviewAll(false, "both")}>
+                    AI Review all (both)
+                  </button>
+                </div>
+
+                <div className="flex flex-col sm:flex-row gap-3">
+                  <button className="btn btn-outline" disabled={!parsedCount || busy || !canAI} onClick={() => void aiReviewAll(true, "content")}>
+                    Apply AI all (content)
+                  </button>
+                  <button className="btn btn-outline" disabled={!parsedCount || busy || !canAI} onClick={() => void aiReviewAll(true, "format")}>
+                    Apply AI all (format)
+                  </button>
+                  <button className="btn btn-outline" disabled={!parsedCount || busy || !canAI} onClick={() => void aiReviewAll(true, "both")}>
+                    Apply AI all (both)
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -756,37 +829,66 @@ export default function Workflow() {
                 return (
                   <div
                     key={c.id}
-                    className="card bg-base-200/40 border border-base-300 rounded-2xl
-                               transition-all duration-200 hover:-translate-y-1 hover:border-primary/40 hover:bg-base-200"
+                    className="card bg-base-200/40 border border-base-300 rounded-2xl transition-all duration-200 hover:-translate-y-1 hover:border-primary/40 hover:bg-base-200"
                   >
                     <div className="card-body space-y-3">
                       <div className="flex items-center justify-between gap-2">
                         <div className="badge badge-outline">{c.card_type.toUpperCase()}</div>
 
-                        <div className="flex gap-2">
+                        <div className="flex gap-2 flex-wrap justify-end">
                           <button
                             className="btn btn-xs btn-ghost"
                             disabled={busy || !canAI || !isPersisted}
-                            onClick={() => void aiReviewCard(c.id, false)}
-                            title={!isPersisted ? "Parse while logged in to persist cards" : "AI Review this card"}
+                            onClick={() => {
+                              setBusy(true);
+                              setStatus("Running AI review (content)...");
+                              void aiReviewCard(c.id, false, "content")
+                                .then(() => setStatus("AI review complete."))
+                                .catch((e: any) => setStatus(e?.message ? `AI Review failed: ${e.message}` : "AI Review failed."))
+                                .finally(() => setBusy(false));
+                            }}
+                            title={!isPersisted ? "Parse while logged in to persist cards" : "AI Review (content)"}
                           >
-                            AI Review
+                            Review
                           </button>
 
                           <button
                             className="btn btn-xs btn-ghost"
                             disabled={busy || !canAI || !isPersisted}
-                            onClick={() => void aiReviewCard(c.id, true)}
-                            title={!isPersisted ? "Parse while logged in to persist cards" : "Apply AI suggestion to this card"}
+                            onClick={() => {
+                              setBusy(true);
+                              setStatus("Running AI review (format)...");
+                              void aiReviewCard(c.id, false, "format")
+                                .then(() => setStatus("AI review complete."))
+                                .catch((e: any) => setStatus(e?.message ? `AI Review failed: ${e.message}` : "AI Review failed."))
+                                .finally(() => setBusy(false));
+                            }}
+                            title={!isPersisted ? "Parse while logged in to persist cards" : "AI Review (format)"}
                           >
-                            Apply AI
+                            Format
+                          </button>
+
+                          <button
+                            className="btn btn-xs btn-ghost"
+                            disabled={busy || !canAI || !isPersisted}
+                            onClick={() => {
+                              setBusy(true);
+                              setStatus("Applying AI (both)...");
+                              void aiReviewCard(c.id, true, "both")
+                                .then(() => setStatus("AI applied."))
+                                .catch((e: any) => setStatus(e?.message ? `AI Apply failed: ${e.message}` : "AI Apply failed."))
+                                .finally(() => setBusy(false));
+                            }}
+                            title={!isPersisted ? "Parse while logged in to persist cards" : "Apply AI (both)"}
+                          >
+                            Apply
                           </button>
 
                           <button className="btn btn-xs btn-ghost" disabled={busy} onClick={() => toggleEdit(c.id)} title="Toggle edit">
                             {isEditing ? "Close" : "Edit"}
                           </button>
 
-                          <button className="btn btn-xs btn-ghost" disabled={busy} onClick={() => deleteCard(c.id)} title="Delete card">
+                          <button className="btn btn-xs btn-ghost" disabled={busy} onClick={() => void deleteCard(c.id)} title="Delete card">
                             Delete
                           </button>
                         </div>
@@ -808,7 +910,7 @@ export default function Workflow() {
                             {feedback
                               ? feedback
                               : wasReviewedThisSession
-                              ? "AI review ran successfully, but returned no feedback/suggestions for this card."
+                              ? "AI ran successfully, but returned no feedback for this card."
                               : "AI fields are empty for this card (no stored feedback)."}
                           </div>
 
@@ -831,14 +933,10 @@ export default function Workflow() {
                       )}
 
                       <div className="text-xs font-semibold opacity-70">Front (preview)</div>
-                      <pre className="whitespace-pre-wrap text-sm leading-relaxed bg-base-100/40 border border-base-300 rounded-xl p-3">
-                        {previewFront}
-                      </pre>
+                      <pre className="whitespace-pre-wrap text-sm leading-relaxed bg-base-100/40 border border-base-300 rounded-xl p-3">{previewFront}</pre>
 
                       <div className="text-xs font-semibold opacity-70">Back (preview)</div>
-                      <pre className="whitespace-pre-wrap text-sm leading-relaxed bg-base-100/40 border border-base-300 rounded-xl p-3">
-                        {previewBack}
-                      </pre>
+                      <pre className="whitespace-pre-wrap text-sm leading-relaxed bg-base-100/40 border border-base-300 rounded-xl p-3">{previewBack}</pre>
 
                       {isEditing && (
                         <div className="rounded-2xl border border-base-300 bg-base-100/50 p-3 space-y-3">

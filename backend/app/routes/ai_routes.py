@@ -1,4 +1,7 @@
 from __future__ import annotations
+
+from typing import Literal
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -11,11 +14,20 @@ from ..services.ai_review import review_card
 
 router = APIRouter(prefix="/ai", tags=["ai"])
 
+AIMode = Literal["content", "format", "both"]
+
+
 class ReviewPayload(BaseModel):
     project_id: int
     card_id: int
     variant: str = "en-AU"
+
+    # apply = whether to write the suggested front/back onto the card
     apply: bool = False
+
+    # mode controls what the AI is allowed to do
+    mode: AIMode = "content"
+
 
 @router.post("/review")
 async def review(payload: ReviewPayload, request: Request, db: Session = Depends(get_db)):
@@ -31,12 +43,14 @@ async def review(payload: ReviewPayload, request: Request, db: Session = Depends
     card = db.query(Card).filter(Card.id == payload.card_id).first()
     if not card:
         raise HTTPException(status_code=404, detail="Card not found")
+
     proj = db.query(Project).filter(Project.id == payload.project_id, Project.owner_id == uid).first()
     if not proj or card.project_id != proj.id:
         raise HTTPException(status_code=403, detail="Forbidden")
 
-    result = await review_card(card.front, card.back, payload.variant)
+    result = await review_card(card.front, card.back, payload.variant, payload.mode)
 
+    # Store AI results even if null/empty so UI can show "reviewed"
     card.ai_changed = bool(result["changed"])
     card.ai_flag = result["flag"]
     card.ai_feedback = result["feedback"]
@@ -44,9 +58,12 @@ async def review(payload: ReviewPayload, request: Request, db: Session = Depends
     card.ai_suggest_back = result["back"]
 
     if payload.apply and result["changed"]:
-        card.front = result["front"]; card.back = result["back"]
+        card.front = result["front"]
+        card.back = result["back"]
 
-    db.add(card); db.commit()
+    db.add(card)
+    db.commit()
+
     consume_ai(db, user, 1)
 
     return {"ok": True, "result": result, "usage": {"used": user.usage_count, "limit": limit}}
