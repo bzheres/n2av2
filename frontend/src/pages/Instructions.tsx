@@ -1,3 +1,4 @@
+// src/pages/Instructions.tsx
 import React from "react";
 import { Link } from "react-router-dom";
 
@@ -12,8 +13,8 @@ type Step = {
   // Fallback text if you haven't added media yet
   mediaHint: string;
 
-  // ✅ Add these so you can link real media later
-  mediaSrc?: string; // e.g. "/media/workflow-upload.png" or "https://..."
+  // Real media (served from /public via absolute paths like "/videos/...")
+  mediaSrc?: string;
   mediaAlt?: string; // for images
   mediaPoster?: string; // for videos (optional)
 
@@ -32,8 +33,9 @@ const STEPS: Step[] = [
     ],
     mediaType: "video",
     mediaHint: "Placeholder: 20–40s tour clip: Home → Instructions → Workflow → Account",
-    // mediaSrc: "/media/tour.mp4",
-    // mediaPoster: "/media/tour-poster.jpg",
+    // ✅ Use /public-relative URL (NOT the Windows filesystem path)
+    mediaSrc: "/videos/n2a_step1_video.mp4",
+    // mediaPoster: "/images/step1_poster.jpg",
     cta: { label: "Open Workflow", to: "/workflow" },
   },
   {
@@ -48,7 +50,7 @@ const STEPS: Step[] = [
     ],
     mediaType: "image",
     mediaHint: "Placeholder: screenshot of Account page showing free vs paid state (plan badge + actions)",
-    // mediaSrc: "/media/account-plans.png",
+    // mediaSrc: "/images/account-plans.png",
     // mediaAlt: "Account page showing plan badge and actions",
     cta: { label: "Go to Account", to: "/account" },
   },
@@ -67,7 +69,7 @@ const STEPS: Step[] = [
     ],
     mediaType: "image",
     mediaHint: "Placeholder: screenshot of a Notion page showing correct Q&A + MCQ blocks",
-    // mediaSrc: "/media/notion-formatting.png",
+    // mediaSrc: "/images/notion-formatting.png",
     // mediaAlt: "Notion page showing correct Question/MCQ blocks",
   },
   {
@@ -80,47 +82,35 @@ const STEPS: Step[] = [
     ],
     mediaType: "video",
     mediaHint: "Placeholder: screen recording: Notion export settings → drag/drop into Workflow",
-    // mediaSrc: "/media/notion-export-to-upload.mp4",
-    // mediaPoster: "/media/notion-export-to-upload-poster.jpg",
+    // mediaSrc: "/videos/notion-export-to-upload.mp4",
+    // mediaPoster: "/images/notion-export-to-upload-poster.jpg",
     cta: { label: "Open Workflow", to: "/workflow" },
   },
   {
     title: "5) Parse: generate your card previews",
     subtitle: "Parsing turns your Markdown blocks into Q&A and MCQ cards",
-    bullets: [
-      "Click Parse to generate cards",
-      "Check Total vs Shown counts",
-      "You can use the Filter to show only Q&A cards, only MCQ cards, or both by selecting 'All'",
-    ],
+    bullets: ["Click Parse to generate cards", "Check Total vs Shown counts", "You can use the Filter to show only Q&A cards, only MCQ cards, or both by selecting 'All'"],
     mediaType: "image",
     mediaHint: "Placeholder: screenshot of Workflow after Parse (counts + project badge)",
-    // mediaSrc: "/media/workflow-after-parse.png",
+    // mediaSrc: "/images/workflow-after-parse.png",
     // mediaAlt: "Workflow page showing counts and project badge after parsing",
   },
   {
     title: "6) Review your cards: preview, edit, delete",
     subtitle: "Clean up before export so your Anki import is smooth",
-    bullets: [
-      "Each card shows a preview of how the Front and Back will look in Anki",
-      "Use Edit to change the raw front and back text",
-      "Use Delete to remove a card from export",
-    ],
+    bullets: ["Each card shows a preview of how the Front and Back will look in Anki", "Use Edit to change the raw front and back text", "Use Delete to remove a card from export"],
     mediaType: "video",
     mediaHint: "Placeholder: clip showing: open cards → Edit → Close → Delete",
-    // mediaSrc: "/media/workflow-edit-delete.mp4",
-    // mediaPoster: "/media/workflow-edit-delete-poster.jpg",
+    // mediaSrc: "/videos/workflow-edit-delete.mp4",
+    // mediaPoster: "/images/workflow-edit-delete-poster.jpg",
   },
   {
     title: "7) Export CSV after reviewing for Anki import",
     subtitle: "Export from Workflow, then import into Anki",
-    bullets: [
-      "Click Export CSV to download a .csv file",
-      "In Anki: File → Import → select your CSV",
-      "You are ready to begin studying!",
-    ],
+    bullets: ["Click Export CSV to download a .csv file", "In Anki: File → Import → select your CSV", "You are ready to begin studying!"],
     mediaType: "image",
     mediaHint: "Placeholder: screenshot of Anki import mapping screen (Front/Back fields)",
-    // mediaSrc: "/media/anki-import-mapping.png",
+    // mediaSrc: "/images/anki-import-mapping.png",
     // mediaAlt: "Anki import mapping screen showing Front and Back fields",
   },
   {
@@ -131,11 +121,11 @@ const STEPS: Step[] = [
       "AI Format Review: Improves readability only without changing meaning (in md structure)",
       "AI Review Both: Includes BOTH content review and formatting suggestions",
       "AI Review does not create new facts and it should not add new information to your cards",
-      "AI is NOT perfect. Any suggested changes should be double checked"
+      "AI is NOT perfect. Any suggested changes should be double checked",
     ],
     mediaType: "image",
     mediaHint: "Placeholder: screenshot of Workflow AI buttons (Review all / Format all / Both + Apply)",
-    // mediaSrc: "/media/workflow-ai-buttons.png",
+    // mediaSrc: "/images/workflow-ai-buttons.png",
     // mediaAlt: "Workflow AI buttons for reviewing and applying AI changes",
   },
   {
@@ -149,8 +139,8 @@ const STEPS: Step[] = [
     ],
     mediaType: "video",
     mediaHint: "Placeholder: clip: run AI → open AI result panel → expand suggested front/back → see highlights",
-    // mediaSrc: "/media/ai-results-diff.mp4",
-    // mediaPoster: "/media/ai-results-diff-poster.jpg",
+    // mediaSrc: "/videos/ai-results-diff.mp4",
+    // mediaPoster: "/images/ai-results-diff-poster.jpg",
   },
   {
     title: "10) Apply AI (Paid): write suggestions onto the cards",
@@ -162,7 +152,7 @@ const STEPS: Step[] = [
     ],
     mediaType: "image",
     mediaHint: "Placeholder: screenshot of a card after Apply (front/back updated + AI panel visible)",
-    // mediaSrc: "/media/card-after-apply.png",
+    // mediaSrc: "/images/card-after-apply.png",
     // mediaAlt: "Card preview showing updated content after Apply AI",
   },
 ];
@@ -178,14 +168,21 @@ export default function Instructions() {
 
   const progress = Math.round(((idx + 1) / total) * 100);
 
+  // Zoom modal state
+  const [zoomOpen, setZoomOpen] = React.useState(false);
+
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (zoomOpen && e.key === "Escape") {
+        setZoomOpen(false);
+        return;
+      }
       if (e.key === "ArrowLeft") setIdx((v) => clamp(v - 1, 0, total - 1));
       if (e.key === "ArrowRight") setIdx((v) => clamp(v + 1, 0, total - 1));
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [total]);
+  }, [total, zoomOpen]);
 
   return (
     <div className="-mx-4 md:-mx-6 lg:-mx-8">
@@ -275,6 +272,12 @@ export default function Instructions() {
 
               <div className="text-xs opacity-60">
                 Tip: use <span className="font-semibold">←</span> and <span className="font-semibold">→</span> keys.
+                {step.mediaSrc ? (
+                  <>
+                    {" "}
+                    • Tip: click the media to <span className="font-semibold">zoom</span>.
+                  </>
+                ) : null}
               </div>
             </div>
           </aside>
@@ -307,42 +310,67 @@ export default function Instructions() {
                 </div>
               </div>
 
-              {/* Media block (shows real media if mediaSrc exists, otherwise placeholder) */}
+              {/* Media block: no "Image/Video tag", supports click-to-zoom */}
               <div className="rounded-2xl border border-base-300 bg-base-200/40 overflow-hidden">
-                <div className="p-4 md:p-5 flex items-center justify-between gap-3">
-                  <div className="font-semibold">{step.mediaType === "video" ? "Video" : "Image"}</div>
-                  <div className="badge badge-ghost">{step.mediaType.toUpperCase()}</div>
-                </div>
-
-                <div className="px-4 md:px-5 pb-5">
-                  <div className="aspect-video rounded-xl bg-base-100 border border-base-300 overflow-hidden flex items-center justify-center">
+                <div className="px-4 md:px-5 py-5">
+                  <div
+                    className={[
+                      "aspect-video rounded-xl bg-base-100 border border-base-300 overflow-hidden",
+                      step.mediaSrc ? "cursor-zoom-in" : "",
+                    ].join(" ")}
+                  >
                     {step.mediaSrc ? (
-                      step.mediaType === "image" ? (
-                        <img
-                          src={step.mediaSrc}
-                          alt={step.mediaAlt || step.title}
-                          className="w-full h-full object-cover"
-                          loading="lazy"
-                        />
-                      ) : (
-                        <video
-                          src={step.mediaSrc}
-                          poster={step.mediaPoster}
-                          controls
-                          playsInline
-                          className="w-full h-full object-cover"
-                        />
-                      )
+                      <button
+                        type="button"
+                        onClick={() => setZoomOpen(true)}
+                        className="w-full h-full text-left"
+                        aria-label="Open media in full screen"
+                      >
+                        {step.mediaType === "image" ? (
+                          <img
+                            src={step.mediaSrc}
+                            alt={step.mediaAlt || step.title}
+                            className="w-full h-full object-cover"
+                            loading="lazy"
+                          />
+                        ) : (
+                          // ✅ Videos should NOT autoplay. Keep controls available.
+                          <video
+                            src={step.mediaSrc}
+                            poster={step.mediaPoster}
+                            controls
+                            preload="metadata"
+                            playsInline
+                            className="w-full h-full object-cover"
+                            onClick={(e) => {
+                              // Prevent clicking controls from opening zoom.
+                              // Only the outer button opens zoom; this keeps native controls usable.
+                              e.stopPropagation();
+                            }}
+                          />
+                        )}
+
+                        {/* subtle hint overlay */}
+                        <div className="pointer-events-none absolute" />
+                      </button>
                     ) : (
-                      <div className="text-center space-y-2 px-6">
-                        <div className="text-sm opacity-70">{step.mediaHint}</div>
-                        <div className="text-xs opacity-50">
-                          Add <span className="font-semibold">mediaSrc</span> to this step to show your image/video here (e.g.{" "}
-                          <span className="font-semibold">/media/your-file.png</span>).
+                      <div className="w-full h-full flex items-center justify-center">
+                        <div className="text-center space-y-2 px-6">
+                          <div className="text-sm opacity-70">{step.mediaHint}</div>
+                          <div className="text-xs opacity-50">
+                            Add <span className="font-semibold">mediaSrc</span> to this step to show your media here (e.g.{" "}
+                            <span className="font-semibold">/videos/your-file.mp4</span> or <span className="font-semibold">/images/your-file.png</span>).
+                          </div>
                         </div>
                       </div>
                     )}
                   </div>
+
+                  {step.mediaSrc ? (
+                    <div className="mt-2 text-xs opacity-60">
+                      Click to zoom • Press <span className="font-semibold">Esc</span> to close
+                    </div>
+                  ) : null}
                 </div>
               </div>
 
@@ -358,19 +386,11 @@ export default function Instructions() {
 
               {/* CTA row */}
               <div className="flex flex-col sm:flex-row gap-3 pt-2">
-                <button
-                  className="btn btn-outline"
-                  onClick={() => setIdx((v) => clamp(v - 1, 0, total - 1))}
-                  disabled={idx === 0}
-                >
+                <button className="btn btn-outline" onClick={() => setIdx((v) => clamp(v - 1, 0, total - 1))} disabled={idx === 0}>
                   ← Previous step
                 </button>
 
-                <button
-                  className="btn btn-primary"
-                  onClick={() => setIdx((v) => clamp(v + 1, 0, total - 1))}
-                  disabled={idx === total - 1}
-                >
+                <button className="btn btn-primary" onClick={() => setIdx((v) => clamp(v + 1, 0, total - 1))} disabled={idx === total - 1}>
                   Next step →
                 </button>
 
@@ -402,6 +422,45 @@ export default function Instructions() {
           </div>
         </div>
       </section>
+
+      {/* Zoom modal (image/video). No autoplay for videos. */}
+      {zoomOpen && step.mediaSrc && (
+        <div
+          className="fixed inset-0 z-[1100] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={() => setZoomOpen(false)}
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="relative w-full max-w-5xl" onClick={(e) => e.stopPropagation()}>
+            <button
+              className="btn btn-sm btn-ghost absolute -top-12 right-0"
+              onClick={() => setZoomOpen(false)}
+              aria-label="Close"
+            >
+              ✕ Close
+            </button>
+
+            <div className="rounded-2xl border border-base-300 bg-base-100 overflow-hidden">
+              {step.mediaType === "image" ? (
+                <img src={step.mediaSrc} alt={step.mediaAlt || step.title} className="w-full h-auto" />
+              ) : (
+                <video
+                  src={step.mediaSrc}
+                  poster={step.mediaPoster}
+                  controls
+                  preload="metadata"
+                  playsInline
+                  className="w-full h-auto"
+                />
+              )}
+            </div>
+
+            <div className="mt-2 text-center text-xs text-white/70">
+              Tip: press <span className="font-semibold">Esc</span> to close
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
