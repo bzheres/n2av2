@@ -9,7 +9,7 @@ type UsageResponse = {
   ok: boolean;
   plan: string;
   usage: {
-    month: string;
+    month: string; // "YYYY-MM"
     cards_created_total: number;
     cards_created_this_month: number;
     ai_reviews_used_this_month: number;
@@ -48,6 +48,16 @@ function planCardClass(active: boolean) {
   ].join(" ");
 }
 
+// Convert "YYYY-MM" -> "01/MM/YYYY" (shows month in AU convention)
+function formatUsageMonthAU(yyyyMm?: string | null) {
+  const raw = String(yyyyMm || "").trim();
+  const m = raw.match(/^(\d{4})-(\d{2})$/);
+  if (!m) return raw || "—";
+  const yyyy = m[1];
+  const mm = m[2];
+  return `01/${mm}/${yyyy}`;
+}
+
 export default function Account() {
   const { user, loading, refresh, setUser } = useAuth();
 
@@ -65,6 +75,7 @@ export default function Account() {
   const [resetBusy, setResetBusy] = React.useState(false);
 
   const [checkoutBusy, setCheckoutBusy] = React.useState<null | PlanKey>(null);
+  const [portalBusy, setPortalBusy] = React.useState(false);
 
   // ✅ usage comes from backend /usage/me, not from user
   const [usage, setUsage] = React.useState<UsageResponse["usage"] | null>(null);
@@ -82,7 +93,6 @@ export default function Account() {
       const r = await apiFetch<UsageResponse>("/usage/me");
       setUsage(r.usage);
     } catch {
-      // if endpoint missing or session invalid, don’t break UI
       setUsage(null);
     } finally {
       setUsageBusy(false);
@@ -102,7 +112,7 @@ export default function Account() {
       if (mode === "signup") await signup(username || "User", email, password);
       else await login(email, password);
 
-      await refresh();      // refresh auth state
+      await refresh(); // refresh auth state
       await refreshUsage(); // refresh counters right away
     } catch (e: any) {
       setErr(e?.message || "Failed");
@@ -138,11 +148,13 @@ export default function Account() {
 
   async function doPortal() {
     setErr(null);
+    setPortalBusy(true);
     try {
       const r = await apiFetch<{ url: string }>("/billing/portal", { method: "POST" });
       window.location.href = r.url;
     } catch (e: any) {
       setErr(e?.message || "Could not open portal");
+      setPortalBusy(false);
     }
   }
 
@@ -156,30 +168,30 @@ export default function Account() {
     {
       key: "free",
       title: "Free",
-      subtitle: "For trying N2A and basic workflows.",
+      subtitle: "Everything you need to generate and export cards.",
       priceLabel: "$0",
-      features: ["Upload Notion Markdown export", "Parse Q&A and MCQ cards", "Edit & export CSV for Anki", "No AI review"],
+      features: ["Upload Notion Markdown export", "Parse Q&A and MCQ cards", "Preview, edit & delete cards", "Export CSV for Anki"],
     },
     {
       key: "silver",
       title: "Silver",
-      subtitle: "Light AI support for small batches.",
-      priceLabel: "Monthly",
-      features: ["Everything in Free", "AI review (starter limit)", "Priority improvements & fixes"],
+      subtitle: "AI review for smaller projects.",
+      priceLabel: "$5",
+      features: ["Everything in Free", "Up to 3,000 AI reviews / month", "AI review modes: content / format / both", "Apply AI suggestions (when available)"],
     },
     {
       key: "gold",
       title: "Gold",
       subtitle: "Best value for regular studying.",
-      priceLabel: "Monthly",
-      features: ["Everything in Silver", "Higher AI review limits", "Faster iteration on features"],
+      priceLabel: "$7",
+      features: ["Everything in Silver", "Up to 5,000 AI reviews / month", "AI review modes: content / format / both", "Apply AI suggestions (when available)"],
     },
     {
       key: "platinum",
       title: "Platinum",
       subtitle: "Power users + heavy AI review.",
-      priceLabel: "Monthly",
-      features: ["Everything in Gold", "Highest AI review limits", "Early access to new tools"],
+      priceLabel: "$10",
+      features: ["Everything in Gold", "Up to 10,000 AI reviews / month", "AI review modes: content / format / both", "Apply AI suggestions (when available)"],
     },
   ];
 
@@ -210,14 +222,15 @@ export default function Account() {
 
     if (isActive) {
       return (
-        <button
-          className="btn btn-primary w-full"
-          onClick={doPortal}
-          disabled={!(user as any)?.stripe_customer_id}
-          title={!(user as any)?.stripe_customer_id ? "Stripe customer not linked yet" : ""}
-        >
-          Manage subscription
-        </button>
+        <div className="space-y-2">
+          <button className="btn btn-primary w-full" onClick={doPortal} disabled={portalBusy}>
+            {portalBusy ? "Opening…" : "Manage / cancel subscription"}
+          </button>
+          <div className="text-xs opacity-70">
+            Cancel or change plans in the Stripe Customer Portal. If you cancel, your plan will revert to{" "}
+            <span className="font-semibold">Free</span> at the end of the current billing period.
+          </div>
+        </div>
       );
     }
 
@@ -259,13 +272,8 @@ export default function Account() {
 
             {user && (
               <div className="flex gap-2 flex-wrap">
-                <button
-                  className="btn btn-outline"
-                  onClick={doPortal}
-                  disabled={!(user as any)?.stripe_customer_id}
-                  title={!(user as any)?.stripe_customer_id ? "Stripe customer not linked yet" : ""}
-                >
-                  Manage subscription
+                <button className="btn btn-outline" onClick={doPortal} disabled={portalBusy}>
+                  {portalBusy ? "Opening…" : "Manage / cancel subscription"}
                 </button>
 
                 <button className="btn btn-outline" onClick={refreshUsage} disabled={usageBusy}>
@@ -438,10 +446,7 @@ export default function Account() {
                     <div className="font-semibold text-lg text-primary">{planLabel(currentPlan)}</div>
                   </div>
 
-                  <div className="p-4 rounded-2xl bg-base-100 border border-base-300">
-                    <div className="text-sm opacity-70">Stripe linked</div>
-                    <div className="font-semibold text-lg">{(user as any)?.stripe_customer_id ? "Yes" : "No"}</div>
-                  </div>
+                  {/* ✅ removed Stripe linked box */}
                 </div>
 
                 <div className="divider">Usage</div>
@@ -466,7 +471,7 @@ export default function Account() {
                   <p className="text-sm opacity-70">Refreshing usage…</p>
                 ) : usage ? (
                   <p className="text-sm opacity-70">
-                    Usage month: <span className="font-semibold">{usage.month}</span>
+                    Usage month: <span className="font-semibold">{formatUsageMonthAU(usage.month)}</span>
                   </p>
                 ) : (
                   <p className="text-sm opacity-70">
@@ -481,7 +486,9 @@ export default function Account() {
             <div className="flex items-end justify-between gap-4 flex-wrap">
               <div>
                 <h3 className="text-2xl font-bold">Plans</h3>
-                <p className="opacity-80 text-sm">Checkout is handled by your backend Stripe endpoints.</p>
+                <p className="opacity-80 text-sm">
+                  Upgrade for AI Review. You can change or cancel any time via the Stripe Customer Portal.
+                </p>
               </div>
               {user && <div className="badge badge-primary badge-outline">Current: {planLabel(currentPlan)}</div>}
             </div>
@@ -521,6 +528,18 @@ export default function Account() {
                 );
               })}
             </div>
+
+            {/* ✅ explicit cancel hint (without changing Stripe/auth logic) */}
+            {user && currentPlan !== "free" && (
+              <div className="rounded-2xl border border-base-300 bg-base-200/40 p-4">
+                <div className="font-semibold">Cancel subscription</div>
+                <div className="text-sm opacity-80 mt-1">
+                  To cancel, open <span className="font-semibold">Manage / cancel subscription</span> above. Stripe will
+                  handle cancellation and billing. After cancellation, your plan will revert to{" "}
+                  <span className="font-semibold">Free</span> at the end of your billing period.
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </section>
