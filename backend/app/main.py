@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .config import settings
 from .db import engine, Base
+
 from .routes.auth_routes import router as auth_router
 from .routes.projects_routes import router as projects_router
 from .routes.cards_routes import router as cards_router
@@ -12,6 +13,7 @@ from .routes.export_routes import router as export_router
 from .routes.ai_routes import router as ai_router
 from .routes.billing_routes import router as billing_router
 from .routes.stripe_webhook_routes import router as stripe_router
+from .routes.usage_routes import router as usage_router  # ✅ ADD
 
 Base.metadata.create_all(bind=engine)
 
@@ -19,17 +21,11 @@ app = FastAPI(title="N2A API", version="2.0")
 
 
 def _cors_origins() -> list[str]:
-    """
-    Returns an explicit allowlist of origins.
-    IMPORTANT: Must return a list, otherwise CORS headers won't be added.
-    """
     origins: list[str] = []
 
-    # Primary frontend origin from env
     if settings.FRONTEND_URL:
         origins.append(settings.FRONTEND_URL.strip())
 
-    # Local dev origins (safe to keep)
     origins += [
         "http://localhost:5173",
         "http://127.0.0.1:5173",
@@ -37,18 +33,15 @@ def _cors_origins() -> list[str]:
         "http://127.0.0.1:5500",
     ]
 
-    # Production origins (include both apex + www)
     origins += [
         "https://n2a.com.au",
         "https://www.n2a.com.au",
     ]
 
-    # Optional extra allowlist (comma-separated)
     extra = (settings.CORS_EXTRA_ORIGINS or "").strip()
     if extra:
         origins.extend([o.strip() for o in extra.split(",") if o.strip()])
 
-    # De-dupe (preserve order)
     seen = set()
     out: list[str] = []
     for o in origins:
@@ -74,9 +67,10 @@ def health():
 
 
 app.include_router(auth_router)
-app.include_router(projects_router)  # now includes /projects/latest + /projects/{id}/cards
+app.include_router(projects_router)
 app.include_router(cards_router)
 app.include_router(export_router)
 app.include_router(ai_router)
 app.include_router(billing_router)
 app.include_router(stripe_router)
+app.include_router(usage_router)  # ✅ ADD

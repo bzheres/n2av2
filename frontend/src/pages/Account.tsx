@@ -5,6 +5,19 @@ import { useAuth } from "../auth_state";
 
 type PlanKey = "free" | "silver" | "gold" | "platinum";
 
+type UsageResponse = {
+  ok: boolean;
+  plan: string;
+  usage: {
+    month: string;
+    cards_created_total: number;
+    cards_created_this_month: number;
+    ai_reviews_used_this_month: number;
+    ai_reviews_limit_this_month: number;
+    ai_reviews_remaining_this_month: number;
+  };
+};
+
 function normalizePlan(p: any): PlanKey {
   const raw = String(p ?? "free").toLowerCase();
   if (raw.includes("platinum")) return "platinum";
@@ -53,7 +66,34 @@ export default function Account() {
 
   const [checkoutBusy, setCheckoutBusy] = React.useState<null | PlanKey>(null);
 
+  // ✅ usage comes from backend /usage/me, not from user
+  const [usage, setUsage] = React.useState<UsageResponse["usage"] | null>(null);
+  const [usageBusy, setUsageBusy] = React.useState(false);
+
   const currentPlan: PlanKey = normalizePlan(user?.plan);
+
+  async function refreshUsage() {
+    if (!user) {
+      setUsage(null);
+      return;
+    }
+    setUsageBusy(true);
+    try {
+      const r = await apiFetch<UsageResponse>("/usage/me");
+      setUsage(r.usage);
+    } catch {
+      // if endpoint missing or session invalid, don’t break UI
+      setUsage(null);
+    } finally {
+      setUsageBusy(false);
+    }
+  }
+
+  React.useEffect(() => {
+    if (!loading && user) void refreshUsage();
+    if (!loading && !user) setUsage(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, user?.id]);
 
   async function submitAuth() {
     setErr(null);
@@ -62,7 +102,8 @@ export default function Account() {
       if (mode === "signup") await signup(username || "User", email, password);
       else await login(email, password);
 
-      await refresh(); // pulls /auth/me and updates cache + context
+      await refresh();      // refresh auth state
+      await refreshUsage(); // refresh counters right away
     } catch (e: any) {
       setErr(e?.message || "Failed");
     } finally {
@@ -76,7 +117,8 @@ export default function Account() {
     } catch {
       // ignore
     }
-    setUser(null); // instant UI update
+    setUsage(null);
+    setUser(null);
   }
 
   async function doCheckout(plan: "silver" | "gold" | "platinum") {
@@ -103,11 +145,6 @@ export default function Account() {
       setErr(e?.message || "Could not open portal");
     }
   }
-
-  const usage = {
-    cardsMadeThisMonth: Number((user as any)?.cards_made_this_month ?? (user as any)?.usage?.cards_made_this_month ?? 0),
-    aiReviewedThisMonth: Number((user as any)?.ai_reviews_this_month ?? (user as any)?.usage?.ai_reviews_this_month ?? 0),
-  };
 
   const plans: Array<{
     key: PlanKey;
@@ -187,13 +224,12 @@ export default function Account() {
     const isBusy = checkoutBusy === planKey;
 
     return (
-      <button className="btn btn-outline w-full" onClick={() => doCheckout(planKey as "silver" | "gold" | "platinum")} disabled={!!checkoutBusy}>
+      <button className="btn btn-outline w-full" onClick={() => doCheckout(planKey as any)} disabled={!!checkoutBusy}>
         {isBusy ? "Redirecting…" : `Choose ${planLabel(planKey)}`}
       </button>
     );
   }
 
-  // IMPORTANT: this prevents guest UI flashing while auth is being revalidated
   if (loading) {
     return (
       <div className="min-h-[60vh] flex items-center justify-center">
@@ -202,9 +238,15 @@ export default function Account() {
     );
   }
 
+  const aiUsed = usage?.ai_reviews_used_this_month ?? 0;
+  const aiLimit = usage?.ai_reviews_limit_this_month ?? 0;
+  const aiRemaining = usage?.ai_reviews_remaining_this_month ?? 0;
+
+  const cardsTotal = usage?.cards_created_total ?? 0;
+  const cardsThisMonth = usage?.cards_created_this_month ?? 0;
+
   return (
     <div className="-mx-4 md:-mx-6 lg:-mx-8 space-y-10">
-      {/* Header band */}
       <section className="px-4 md:px-6 lg:px-8 py-10 bg-base-200">
         <div className="max-w-6xl mx-auto">
           <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
@@ -225,6 +267,11 @@ export default function Account() {
                 >
                   Manage subscription
                 </button>
+
+                <button className="btn btn-outline" onClick={refreshUsage} disabled={usageBusy}>
+                  {usageBusy ? "Refreshing…" : "Refresh usage"}
+                </button>
+
                 <button className="btn" onClick={doLogout}>
                   Logout
                 </button>
@@ -234,12 +281,9 @@ export default function Account() {
         </div>
       </section>
 
-      {/* Main content band */}
       <section className="px-4 md:px-6 lg:px-8 pb-12 bg-base-100">
         <div className="max-w-6xl mx-auto space-y-10">
-          {/* Top grid: Auth + Profile */}
           <div className="grid lg:grid-cols-2 gap-6">
-            {/* Auth card */}
             <div id="account-auth-card" className="card bg-base-200/60 border border-base-300 rounded-2xl">
               <div className="card-body space-y-4">
                 <div className="flex items-center justify-between gap-3">
@@ -252,6 +296,7 @@ export default function Account() {
                       <a className={`tab ${mode === "signup" ? "tab-active" : ""}`} onClick={() => setMode("signup")}>
                         Create
                       </a>
+                      <span />
                     </div>
                   )}
                 </div>
@@ -262,11 +307,16 @@ export default function Account() {
                       className="space-y-3"
                       onSubmit={(e) => {
                         e.preventDefault();
-                        if (!busy) submitAuth();
+                        if (!busy) void submitAuth();
                       }}
                     >
                       {mode === "signup" && (
-                        <input className="input input-bordered w-full" placeholder="Username" value={username} onChange={(e) => setUsername(e.target.value)} />
+                        <input
+                          className="input input-bordered w-full"
+                          placeholder="Username"
+                          value={username}
+                          onChange={(e) => setUsername(e.target.value)}
+                        />
                       )}
 
                       <input
@@ -335,9 +385,15 @@ export default function Account() {
                           if (!resetToken || !newPass) return;
                           await resetPassword(resetToken, newPass);
                           await refresh();
+                          await refreshUsage();
                         }}
                       >
-                        <input className="input input-bordered w-full" placeholder="Reset token" value={resetToken} onChange={(e) => setResetToken(e.target.value)} />
+                        <input
+                          className="input input-bordered w-full"
+                          placeholder="Reset token"
+                          value={resetToken}
+                          onChange={(e) => setResetToken(e.target.value)}
+                        />
                         <input
                           className="input input-bordered w-full"
                           placeholder="New password"
@@ -362,7 +418,6 @@ export default function Account() {
               </div>
             </div>
 
-            {/* Profile card */}
             <div className="card bg-base-200/60 border border-base-300 rounded-2xl">
               <div className="card-body space-y-4">
                 <h3 className="card-title text-2xl">Profile</h3>
@@ -393,23 +448,35 @@ export default function Account() {
 
                 <div className="grid sm:grid-cols-2 gap-4">
                   <div className="p-4 rounded-2xl bg-base-100 border border-base-300">
-                    <div className="text-sm opacity-70">Cards made (month)</div>
-                    <div className="font-semibold text-2xl">{usage.cardsMadeThisMonth}</div>
+                    <div className="text-sm opacity-70">Cards created (total)</div>
+                    <div className="font-semibold text-2xl">{cardsTotal}</div>
+                    <div className="text-xs opacity-60 mt-1">This month: {cardsThisMonth}</div>
                   </div>
+
                   <div className="p-4 rounded-2xl bg-base-100 border border-base-300">
-                    <div className="text-sm opacity-70">AI reviewed (month)</div>
-                    <div className="font-semibold text-2xl">{usage.aiReviewedThisMonth}</div>
+                    <div className="text-sm opacity-70">AI reviews (this month)</div>
+                    <div className="font-semibold text-2xl">
+                      {aiUsed} / {aiLimit}
+                    </div>
+                    <div className="text-xs opacity-60 mt-1">Remaining: {aiRemaining}</div>
                   </div>
                 </div>
 
-                <p className="text-sm opacity-70">
-                  If these stay at <span className="font-semibold">0</span>, we’ll wire them to real counters from the backend later.
-                </p>
+                {!user ? null : usageBusy ? (
+                  <p className="text-sm opacity-70">Refreshing usage…</p>
+                ) : usage ? (
+                  <p className="text-sm opacity-70">
+                    Usage month: <span className="font-semibold">{usage.month}</span>
+                  </p>
+                ) : (
+                  <p className="text-sm opacity-70">
+                    Usage not available yet (check that <span className="font-semibold">/usage/me</span> is deployed).
+                  </p>
+                )}
               </div>
             </div>
           </div>
 
-          {/* Plans */}
           <div className="space-y-4">
             <div className="flex items-end justify-between gap-4 flex-wrap">
               <div>
