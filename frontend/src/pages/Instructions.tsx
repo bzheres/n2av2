@@ -23,12 +23,12 @@ type Step = {
 const STEPS: Step[] = [
   {
     title: "1) Quick tour: what N2A does",
-    subtitle: "From Notion → cards → Anki, with a simple Workflow-first design.",
+    subtitle: "From Notion → cards → Anki",
     bullets: [
-      "Home: quick overview + examples",
-      "Instructions: this guided walkthrough (with placeholders for your screenshots/videos)",
-      "Workflow: upload → parse → preview/edit → export (and AI review for paid users)",
-      "Account: login/signup + plan status (free vs paid) + manage subscription (paid)",
+      "Home: Introduction to N2A",
+      "Instructions: Comprehensive overview of N2A",
+      "Workflow: This is where you upload you Notion file, generate cards, preview and edit cards, and export your CSV file",
+      "Account: Manage your account - upgrade subscription, monitor usage",
     ],
     mediaType: "video",
     mediaHint: "Placeholder: 20–40s tour clip: Home → Instructions → Workflow → Account",
@@ -37,13 +37,14 @@ const STEPS: Step[] = [
     cta: { label: "Open Workflow", to: "/workflow" },
   },
   {
-    title: "2) Account & plans (Free vs Paid)",
-    subtitle: "Free tier covers the entire core flow. Paid adds AI review features.",
+    title: "2) Account & plans",
+    subtitle: "Free tier covers the entire core flow! Optionally, can upgrade to integrate AI review of your cards",
     bullets: [
-      "Free / Guest: upload, parse, preview, edit, delete, export CSV",
-      "Logged-in Free: same as above, but projects/cards can be saved (depending on your backend rules)",
-      "Paid plans: unlock AI Review (content / format / both) + Apply AI",
-      "Workflow will show your current status (Guest vs Logged in + plan badge)",
+      "Guests can utilise ALL the key features without an account",
+      "Free Users with an account can utilise ALL the key features + cards can be saved for when you log back in",
+      "Paid plans: Users can choose to upgrade to a paid plan. This unlocks the option to have your cards AI reviewed to ensure content is correct and to improve formatting",
+      "Importantly, the AI WILL NOT make up answers or change meaning to your cards",
+      "From the Account page, you can track how many cards you have generated as well as track how many AI reviews you have left (if applicable)",
     ],
     mediaType: "image",
     mediaHint: "Placeholder: screenshot of Account page showing free vs paid state (plan badge + actions)",
@@ -53,14 +54,16 @@ const STEPS: Step[] = [
   },
   {
     title: "3) Format your Notion page so N2A can parse it",
-    subtitle: "Use explicit card labels. One card per block.",
+    subtitle: "It is important to follow these simple instructions to ensure N2A works correctly",
     bullets: [
-      "Q&A card must start with:  Question: <your question>",
-      "Answer lines should be indented OR bullet points (e.g. 4 spaces, a tab, '-', '*')",
-      "MCQ card must start with:  MCQ: <your stem>",
-      "MCQ options should be indented or bulleted (one option per line)",
-      "MCQ answer must be:  Answer:  then the selected option on the next indented line (e.g. '    B) ...' or '    2) ...')",
+      "Currently, N2A only supports simple back and front cards",
+      "To make a Notion note a Q&A card, the line must begin with 'Question:' with the question written after",
+      "The Answer to the Question must be indented beneath the Question OR bulleted (i.e. 4 spaces, '-', '*')",
+      "To mae a Notion note a MCQ card, the line must begin with 'MCQ:' with the question stem written after",
+      "The MCQ options must be indented OR bulleted underneath the question stem, with one option per line",
+      "The MCQ Answer must be written as 'Answer:' with the answer written after OR on the next indented line",
       "Avoid mixing multiple prompts in the same card block",
+      "The video above shows real examples of how to structure your Notion notes",
     ],
     mediaType: "image",
     mediaHint: "Placeholder: screenshot of a Notion page showing correct Q&A + MCQ blocks",
@@ -68,13 +71,11 @@ const STEPS: Step[] = [
     // mediaAlt: "Notion page showing correct Question/MCQ blocks",
   },
   {
-    title: "4) Export from Notion + upload into Workflow",
+    title: "4) Export from Notion and then upload into Workflow",
     subtitle: "Export Markdown from Notion, then upload the .md file into Workflow.",
     bullets: [
       "In Notion: Share → Export → Markdown & CSV",
-      "Include sub-pages if needed (optional), but start with one page for testing",
-      "Don’t rename the exported file before uploading (keeps tracking simple)",
-      "In Workflow: drag & drop the exported .md file into the upload box",
+      "In N2A Workflow: Drag & drop the exported .md file into the upload box OR select the .md file",
       "Confirm filename shows and Parse becomes available",
     ],
     mediaType: "video",
@@ -85,12 +86,11 @@ const STEPS: Step[] = [
   },
   {
     title: "5) Parse: generate your card previews",
-    subtitle: "Parsing turns your Markdown blocks into Q&A and MCQ cards.",
+    subtitle: "Parsing turns your Markdown blocks into Q&A and MCQ cards",
     bullets: [
-      "Click Parse to generate cards (and save to a Project if logged in)",
-      "Check Total vs Shown counts (use Filter: All / Q&A / MCQ)",
-      "If card counts look wrong: fix labels/indentation in Notion and export again",
-      "You can iterate quickly: export → upload → parse",
+      "Click Parse to generate cards",
+      "Check Total vs Shown counts",
+      "You can use the Filter to show only Q&A cards, only MCQ cards, or both by selecting 'All'",
     ],
     mediaType: "image",
     mediaHint: "Placeholder: screenshot of Workflow after Parse (counts + project badge)",
@@ -98,14 +98,12 @@ const STEPS: Step[] = [
     // mediaAlt: "Workflow page showing counts and project badge after parsing",
   },
   {
-    title: "6) Review your cards: preview + edit + delete",
-    subtitle: "Clean up before export so your Anki import is smooth.",
+    title: "6) Review your cards: preview, edit, delete",
+    subtitle: "Clean up before export so your Anki import is smooth",
     bullets: [
-      "Each card shows Front (preview) and Back (preview)",
-      "Use Edit to change the raw front/back text",
-      "Edits to persisted cards (saved projects) should update the backend (if enabled)",
-      "Use Delete to remove a card from export (and from the project if persisted)",
-      "Spot-check a few cards for empty answers, broken MCQ options, or weird line breaks",
+      "Each card shows a preview of how the Front and Back will look in Anki",
+      "Use Edit to change the raw front and back text",
+      "Use Delete to remove a card from export",
     ],
     mediaType: "video",
     mediaHint: "Placeholder: clip showing: open cards → Edit → Close → Delete",
@@ -113,13 +111,12 @@ const STEPS: Step[] = [
     // mediaPoster: "/media/workflow-edit-delete-poster.jpg",
   },
   {
-    title: "7) Export CSV (for Anki import)",
-    subtitle: "Export from Workflow, then import into Anki as Front/Back fields.",
+    title: "7) Export CSV after reviewing for Anki import",
+    subtitle: "Export from Workflow, then import into Anki",
     bullets: [
       "Click Export CSV to download a .csv file",
       "In Anki: File → Import → select your CSV",
-      "Map fields: Front → Front, Back → Back",
-      "Do a small import first (test deck) before importing a huge set",
+      "You are ready to begin studying!",
     ],
     mediaType: "image",
     mediaHint: "Placeholder: screenshot of Anki import mapping screen (Front/Back fields)",
@@ -127,13 +124,14 @@ const STEPS: Step[] = [
     // mediaAlt: "Anki import mapping screen showing Front and Back fields",
   },
   {
-    title: "8) AI Review (Paid): overview",
-    subtitle: "Paid users can ask AI to review content, formatting, or both.",
+    title: "8) AI Review: Overview",
+    subtitle: "Paid users can ask AI to review content, formatting, or both",
     bullets: [
-      "AI Review (content): checks clarity + language variant (US vs UK/AUS) and suggests small improvements",
-      "AI Review (format): improves readability only (structure, spacing, bullets) without changing meaning",
-      "AI Review (both): includes BOTH content review + formatting suggestions when applicable",
-      "AI Review does not create new facts — it should not add new information to your cards",
+      "AI Content Review: Checks clarity, fixes spelling (US or Aus/UK), suggests small improvements, and flags cards that may be incorrect",
+      "AI Format Review: Improves readability only without changing meaning (in md structure)",
+      "AI Review Both: Includes BOTH content review and formatting suggestions",
+      "AI Review does not create new facts and it should not add new information to your cards",
+      "AI is NOT perfect. Any suggested changes should be double checked"
     ],
     mediaType: "image",
     mediaHint: "Placeholder: screenshot of Workflow AI buttons (Review all / Format all / Both + Apply)",
@@ -142,13 +140,12 @@ const STEPS: Step[] = [
   },
   {
     title: "9) AI Review results: how to read them",
-    subtitle: "See the AI panel on each card, and open the suggested diff view.",
+    subtitle: "See the AI panel on each card, and open the suggested diff view",
     bullets: [
       "After an AI review, each card shows an AI result panel (Reviewed / Changes suggested)",
       "Open “View suggested front/back” to see suggested edits",
-      "Line-by-line highlighting is used for content-level changes (obvious value)",
-      "For small formatting-only tweaks, the feedback should summarise changes clearly (so it doesn’t feel like “nothing happened”)",
-      "If a card is flagged incorrect, it should be clearly marked and the original text should remain unchanged",
+      "Line-by-line highlighting is used for content-level changes",
+      "Cards that have been flagged as incorrect will show 'This card appears incorrect'",
     ],
     mediaType: "video",
     mediaHint: "Placeholder: clip: run AI → open AI result panel → expand suggested front/back → see highlights",
@@ -157,33 +154,16 @@ const STEPS: Step[] = [
   },
   {
     title: "10) Apply AI (Paid): write suggestions onto the cards",
-    subtitle: "Apply updates the saved card text (persisted cards only).",
+    subtitle: "Apply updates the saved card text",
     bullets: [
-      "Apply AI runs the AI and, if changes are suggested, writes the suggested front/back onto the card",
-      "Apply works on saved/persisted cards (project cards with numeric IDs)",
+      "Apply AI runs the AI and, if changes are suggested, implemets the suggested changes onto the card",
       "If a card is flagged as incorrect, Apply should NOT overwrite content",
-      "Use Apply All (content/format/both) to process your entire project in one go",
+      "Use Apply All to process your entire project in one go",
     ],
     mediaType: "image",
     mediaHint: "Placeholder: screenshot of a card after Apply (front/back updated + AI panel visible)",
     // mediaSrc: "/media/card-after-apply.png",
     // mediaAlt: "Card preview showing updated content after Apply AI",
-  },
-  {
-    title: "11) Recommended workflow for best results",
-    subtitle: "A simple repeatable loop that scales to large Notion pages.",
-    bullets: [
-      "Start small: one page → parse → fix formatting → re-export until counts look perfect",
-      "Then scale up: larger pages or multiple exports",
-      "Before exporting to Anki: do a final preview scan and fix obvious issues",
-      "Paid users: run AI Review (content), then AI Review (format), then AI Review (both) if needed",
-      "Export CSV → import into a test Anki deck → then import into your main deck",
-    ],
-    mediaType: "video",
-    mediaHint: "Placeholder: optional “best practices” walkthrough video (60–120s)",
-    // mediaSrc: "/media/best-practices.mp4",
-    // mediaPoster: "/media/best-practices-poster.jpg",
-    cta: { label: "Back to Workflow", to: "/workflow" },
   },
 ];
 
@@ -213,11 +193,8 @@ export default function Instructions() {
       <section className="px-4 md:px-6 lg:px-8 py-10 md:py-12 bg-base-100">
         <div className="max-w-6xl mx-auto text-center space-y-3">
           <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight">
-            Instructions that <span className="text-primary">actually</span> get you to Anki
+            Instructions: From <span className="text-primary">Notion</span> notes to <span className="text-primary">Anki</span> flashcards
           </h1>
-          <p className="opacity-75 max-w-2xl mx-auto">
-            Follow the steps. Each one has a media placeholder so you can drop in your own screenshots and screen recordings later.
-          </p>
 
           <div className="flex flex-col sm:flex-row justify-center gap-3 pt-2">
             <Link to="/workflow" className="btn btn-primary">
