@@ -24,6 +24,96 @@ type Card = {
   ai_suggest_back?: string | null;
 };
 
+/* ------------------------------------------------------------------ */
+/* Diff helper: line-based "good enough" visual diff for flashcards.   */
+/* - Added lines: primary-tinted highlight                             */
+/* - Removed lines: error-tinted + strikethrough                       */
+/* This is dependency-free and very readable for Anki-style cards.     */
+/* ------------------------------------------------------------------ */
+type DiffLine = { kind: "same" | "add" | "remove"; text: string };
+
+function buildLineDiff(original: string, suggested: string): DiffLine[] {
+  const o = (original ?? "").split("\n");
+  const s = (suggested ?? "").split("\n");
+
+  const out: DiffLine[] = [];
+  const max = Math.max(o.length, s.length);
+
+  for (let i = 0; i < max; i++) {
+    const a = o[i];
+    const b = s[i];
+
+    if (a === b) {
+      if (a !== undefined) out.push({ kind: "same", text: a });
+      continue;
+    }
+
+    if (a !== undefined) out.push({ kind: "remove", text: a });
+    if (b !== undefined) out.push({ kind: "add", text: b });
+  }
+
+  return out;
+}
+
+function DiffBlock({
+  original,
+  suggested,
+}: {
+  original: string;
+  suggested: string;
+}) {
+  const diff = React.useMemo(() => buildLineDiff(original, suggested), [original, suggested]);
+
+  return (
+    <div className="rounded-xl border border-base-300 bg-base-100/40 p-3">
+      <pre className="whitespace-pre-wrap text-sm leading-relaxed">
+        {diff.map((d, idx) => {
+          if (d.kind === "same") {
+            return (
+              <div key={idx} className="opacity-90">
+                {d.text}
+              </div>
+            );
+          }
+          if (d.kind === "add") {
+            return (
+              <div
+                key={idx}
+                className="rounded px-1 py-[1px] bg-primary/15 border border-primary/20"
+              >
+                <span className="font-mono opacity-70">+ </span>
+                {d.text}
+              </div>
+            );
+          }
+          return (
+            <div
+              key={idx}
+              className="rounded px-1 py-[1px] bg-error/10 border border-error/20 line-through text-error/80"
+            >
+              <span className="font-mono opacity-70">− </span>
+              {d.text}
+            </div>
+          );
+        })}
+      </pre>
+
+      <div className="pt-2 text-[11px] opacity-60">
+        <span className="font-semibold">Legend:</span>{" "}
+        <span className="inline-flex items-center gap-1">
+          <span className="inline-block w-3 h-3 rounded bg-primary/15 border border-primary/20" />
+          added
+        </span>{" "}
+        ·{" "}
+        <span className="inline-flex items-center gap-1">
+          <span className="inline-block w-3 h-3 rounded bg-error/10 border border-error/20" />
+          removed/changed
+        </span>
+      </div>
+    </div>
+  );
+}
+
 function parseMarkdown(md: string): Omit<Card, "id">[] {
   const lines = md.split(/\r?\n/);
   const norm = (l: string) => {
@@ -613,9 +703,7 @@ export default function Workflow() {
           </div>
 
           <div className="space-y-1">
-            <div className="text-lg font-semibold">
-              {batch.apply ? "Applying AI to all cards…" : "Reviewing all cards…"}
-            </div>
+            <div className="text-lg font-semibold">{batch.apply ? "Applying AI to all cards…" : "Reviewing all cards…"}</div>
             <div className="text-sm opacity-70">
               Mode: <span className="font-semibold">{batch.mode}</span> • {batch.done}/{batch.total} ({progressPct}%)
               {batch.errors ? ` • errors: ${batch.errors}` : ""}
@@ -870,7 +958,8 @@ export default function Workflow() {
                         <div className="badge badge-outline">{c.card_type.toUpperCase()}</div>
 
                         <div className="flex gap-2 flex-wrap justify-end items-center">
-                          {isAiLoading && <span className="loading loading-spinner loading-xs opacity-80" />}
+                          {/* ✅ spinner now "pops" with primary */}
+                          {isAiLoading && <span className="loading loading-spinner loading-xs text-primary" />}
 
                           <button
                             className="btn btn-xs btn-ghost"
@@ -941,18 +1030,20 @@ export default function Workflow() {
                               : "AI fields are empty for this card (no stored feedback)."}
                           </div>
 
+                          {/* ✅ Highlighted suggested diff */}
                           {changed && (c.ai_suggest_front || c.ai_suggest_back) && (
                             <details className="collapse collapse-arrow border border-base-300 bg-base-200/40 rounded-xl">
-                              <summary className="collapse-title text-sm font-semibold">View suggested front/back</summary>
-                              <div className="collapse-content space-y-2">
-                                <div className="text-xs font-semibold opacity-70">Suggested front</div>
-                                <pre className="whitespace-pre-wrap text-sm leading-relaxed bg-base-100/40 border border-base-300 rounded-xl p-3">
-                                  {c.ai_suggest_front ?? ""}
-                                </pre>
-                                <div className="text-xs font-semibold opacity-70">Suggested back</div>
-                                <pre className="whitespace-pre-wrap text-sm leading-relaxed bg-base-100/40 border border-base-300 rounded-xl p-3">
-                                  {c.ai_suggest_back ?? ""}
-                                </pre>
+                              <summary className="collapse-title text-sm font-semibold">View suggested front/back (highlighted)</summary>
+                              <div className="collapse-content space-y-4">
+                                <div className="space-y-2">
+                                  <div className="text-xs font-semibold opacity-70">Suggested front (diff)</div>
+                                  <DiffBlock original={c.front} suggested={c.ai_suggest_front ?? ""} />
+                                </div>
+
+                                <div className="space-y-2">
+                                  <div className="text-xs font-semibold opacity-70">Suggested back (diff)</div>
+                                  <DiffBlock original={c.back} suggested={c.ai_suggest_back ?? ""} />
+                                </div>
                               </div>
                             </details>
                           )}
