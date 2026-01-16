@@ -18,21 +18,50 @@ class AIResult(TypedDict):
 
 
 # ---------------------------------------------------------------------
-# Language variant policy: force US vs UK/AUS normalisation when mode
-# includes "content" or "both". This is what makes the toggle "actually
-# do something" even when the card is otherwise clear/correct.
+# Variant normalization
+# Your UI might send "uk_au" or "us". We hard-normalize here so the AI
+# sees consistent values and follows the rule reliably.
 # ---------------------------------------------------------------------
-LANGUAGE_VARIANT_POLICY = """LANGUAGE VARIANT RULE (mandatory where applicable):
+def _norm_variant(v: str) -> str:
+    raw = (v or "").strip().lower()
+
+    # common aliases from UI / older code
+    if raw in ("uk_au", "uk", "au", "aus", "en_au", "en-au", "en-gb", "en_uk", "en-uk"):
+        return "en-AU"
+    if raw in ("us", "usa", "en_us", "en-us"):
+        return "en-US"
+
+    # already valid-ish
+    if raw.startswith("en-"):
+        # Preserve en-XX casing
+        parts = raw.split("-", 1)
+        if len(parts) == 2:
+            return f"{parts[0]}-{parts[1].upper()}"
+        return "en-AU"
+
+    # default
+    return "en-AU"
+
+
+# ---------------------------------------------------------------------
+# Language variant policy: force US vs UK/AUS normalisation when mode
+# includes "content" or "both". This ensures the toggle visibly works.
+# ---------------------------------------------------------------------
+LANGUAGE_VARIANT_POLICY = """LANGUAGE VARIANT RULE (MANDATORY):
 - You MUST normalise spelling and medical terminology to the requested language variant.
 - Apply this to BOTH Front and Back.
-- If any word(s) are in the "other" variant, you MUST correct them and set changed=true.
+- If ANY word(s) are in the "other" variant, you MUST correct them AND set changed=true.
 
 Examples (not exhaustive):
-- en-US: color, center, pediatric, anesthesia, optimize, hemorrhage, aluminum, esophagus, meter, liter
-- en-AU (UK/AUS): colour, centre, paediatric, anaesthesia, optimise, haemorrhage, aluminium, oesophagus, metre, litre
+- en-US: color, center, pediatric, anesthesia, optimize, hemorrhage, aluminum, esophagus, meter, liter, artifact
+- en-AU (UK/AUS): colour, centre, paediatric, anaesthesia, optimise, haemorrhage, aluminium, oesophagus, metre, litre, artefact
 
-If no variant changes are needed AND no other improvements are needed:
-- Set changed=false and return the original text unchanged.
+IMPORTANT:
+- If you only perform variant normalisation (and no other edits), set:
+  - flag = "variant_normalised"
+  - feedback = a short note like "Normalised spelling to en-AU" (or en-US).
+- If NO variant changes are needed AND no other improvements are needed:
+  - changed=false and return the original text unchanged.
 """
 
 
@@ -51,14 +80,10 @@ You MAY (only if needed, and without changing meaning):
 - Rephrase wording ONLY if confusing or ambiguous
 - Flag ambiguity if multiple interpretations exist
 
-If the card is already clear and correct AND no language-variant changes are needed:
-- Set changed = false
+If the card is already clear/correct AND no language-variant changes are needed:
+- Set changed=false
 - Return the original text unchanged
-- flag = "ok"
-
-If you changed ONLY spelling/variant normalisation:
-- flag = "variant_normalised"
-- feedback should briefly note that spelling/terminology was normalised.
+- flag="ok"
 
 Return ONLY valid JSON with keys:
 changed, flag, feedback, front, back
@@ -85,8 +110,8 @@ Formatting goals:
 - If the FRONT has multiple lines, keep it clean and consistent.
 
 IMPORTANT:
-- In FORMAT mode, do NOT do spelling/variant conversions unless they are required to
-  fix a genuine typo. (Variant is handled in "content" or "both" modes.)
+- In FORMAT mode, do NOT do spelling/variant conversions unless fixing an actual typo.
+  (Variant enforcement is handled in "content" or "both" modes.)
 - “Changed” should be true if you changed formatting/structure, even if meaning is identical.
 - flag should be "format_ok" if unchanged or "format_changed" if you changed formatting.
 
@@ -137,10 +162,11 @@ async def review_card(front: str, back: str, variant: str = "en-AU", mode: AIMod
     if not settings.OPENAI_API_KEY:
         return AIResult(changed=False, flag="ai_disabled", feedback="AI key not configured", front=front, back=back)
 
+    norm_variant = _norm_variant(variant)
+    system_prompt = _system_prompt_for(mode)
+
     url = "https://api.openai.com/v1/responses"
     headers = {"Authorization": f"Bearer {settings.OPENAI_API_KEY}", "Content-Type": "application/json"}
-
-    system_prompt = _system_prompt_for(mode)
 
     payload = {
         "model": settings.OPENAI_MODEL,
@@ -149,7 +175,7 @@ async def review_card(front: str, back: str, variant: str = "en-AU", mode: AIMod
             {
                 "role": "user",
                 "content": (
-                    f"Language variant: {variant}\n"
+                    f"Language variant (MANDATORY): {norm_variant}\n"
                     f"Mode: {mode}\n\n"
                     f"Front:\n{front}\n\n"
                     f"Back:\n{back}\n"
