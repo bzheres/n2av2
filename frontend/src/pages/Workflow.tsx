@@ -469,13 +469,7 @@ export default function Workflow() {
 
     const res = await apiFetch<{
       ok: boolean;
-      result: {
-        changed: boolean;
-        flag?: string | null;
-        feedback?: string | null;
-        front: string;
-        back: string;
-      };
+      result: { changed: boolean; flag?: string | null; feedback?: string | null; front: string; back: string };
       usage?: { used: number; limit: number };
     }>("/ai/review", {
       method: "POST",
@@ -495,7 +489,6 @@ export default function Workflow() {
     setCards((prev) =>
       prev.map((c) => {
         if (c.id !== id) return c;
-
         const next: Card = {
           ...c,
           ai_changed: changed,
@@ -526,7 +519,6 @@ export default function Workflow() {
     return res;
   }
 
-  // Simple concurrency limiter (no dependency)
   async function runWithConcurrency<T>(items: T[], limit: number, worker: (item: T) => Promise<void>) {
     const queue = [...items];
     const runners: Promise<void>[] = [];
@@ -556,12 +548,7 @@ export default function Workflow() {
     setBusy(true);
     setBatch({ running: true, total: saved.length, done: 0, errors: 0, mode, apply });
 
-    const label =
-      mode === "format" ? (apply ? "Applying AI formatting…" : "Reviewing formatting…") : mode === "both" ? (apply ? "Applying AI (content+format)…" : "Reviewing (content+format)…") : apply ? "Applying AI content…" : "Reviewing content…";
-
-    setStatus(label);
-
-    const concurrency = 5; // safe default; adjust to 8-10 later if your backend/OpenAI rate limits allow
+    const concurrency = 5;
 
     try {
       await runWithConcurrency(saved, concurrency, async (c) => {
@@ -573,11 +560,7 @@ export default function Workflow() {
         }
       });
 
-      setStatus(
-        apply
-          ? `AI complete: applied ${mode} to ${saved.length} card(s).`
-          : `AI complete: reviewed ${mode} for ${saved.length} card(s).`
-      );
+      setStatus(apply ? `AI complete: applied ${mode} for ${saved.length} card(s).` : `AI complete: reviewed ${mode} for ${saved.length} card(s).`);
     } finally {
       setBatch((b) => ({ ...b, running: false }));
       setBusy(false);
@@ -620,163 +603,177 @@ export default function Workflow() {
 
       {/* UPLOAD + PARSE BAND */}
       <section className="px-4 md:px-6 lg:px-8 py-10 md:py-12 bg-base-200">
-        <div className="max-w-6xl mx-auto grid lg:grid-cols-[420px_1fr] gap-6 items-start">
-          {/* 1) Upload */}
-          <div className="card bg-base-100 border border-base-300 rounded-2xl">
-            <div className="card-body space-y-4">
-              <div>
-                <h2 className="text-xl font-bold">1) Upload</h2>
-                <p className="text-sm opacity-70">Drop your Notion export. We’ll parse it into cards.</p>
-              </div>
+        <div className="max-w-6xl mx-auto">
+          {/* Make the two columns equal height */}
+          <div className="flex flex-col lg:flex-row gap-6 items-stretch">
+            {/* LEFT: Upload */}
+            <div className="lg:w-[420px] w-full flex">
+              <div className="card bg-base-100 border border-base-300 rounded-2xl w-full h-full">
+                <div className="card-body space-y-4 h-full">
+                  <div>
+                    <h2 className="text-xl font-bold">1) Upload</h2>
+                    <p className="text-sm opacity-70">Drop your Notion export. We’ll parse it into cards.</p>
+                  </div>
 
-              <UploadBox
-                onFile={(t, n) => {
-                  setRaw(t);
-                  setFilename(n);
+                  <UploadBox
+                    onFile={(t, n) => {
+                      setRaw(t);
+                      setFilename(n);
 
-                  setCards([]);
-                  setEditingIds(new Set());
-                  setStatus(null);
-                  setProjectId(null);
-                  setAiReviewedIds(new Set());
-                  setBatch({ running: false, total: 0, done: 0, errors: 0, mode: null, apply: false });
-                }}
-              />
+                      setCards([]);
+                      setEditingIds(new Set());
+                      setStatus(null);
+                      setProjectId(null);
+                      setAiReviewedIds(new Set());
+                      setBatch({ running: false, total: 0, done: 0, errors: 0, mode: null, apply: false });
+                    }}
+                  />
 
-              <div className="text-xs opacity-70">
-                File: <span className="font-semibold">{filename || "None"}</span>
-              </div>
+                  <div className="text-xs opacity-70">
+                    File: <span className="font-semibold">{filename || "None"}</span>
+                  </div>
 
-              {status && (
-                <div className="alert">
-                  <span>{status}</span>
+                  {status && (
+                    <div className="alert">
+                      <span>{status}</span>
+                    </div>
+                  )}
+
+                  {batch.running && (
+                    <div className="rounded-2xl border border-base-300 bg-base-100/50 p-4 space-y-2">
+                      <div className="flex items-center justify-between text-sm">
+                        <div className="font-semibold">AI Progress</div>
+                        <div className="opacity-70">
+                          {batch.done}/{batch.total} ({progressPct}%){batch.errors ? ` • errors: ${batch.errors}` : ""}
+                        </div>
+                      </div>
+                      <progress className="progress progress-primary w-full" value={batch.done} max={batch.total} />
+                      <div className="text-xs opacity-70">
+                        Mode: <span className="font-semibold">{batch.mode}</span> • {batch.apply ? "Applying" : "Reviewing"}
+                      </div>
+                    </div>
+                  )}
+
+                  {!user && (
+                    <div className="alert alert-info">
+                      <span>Guest mode works for parse/edit/export. Login to subscribe + AI.</span>
+                    </div>
+                  )}
+
+                  {/* Filler to push content nicely (keeps visual balance when right side is tall) */}
+                  <div className="flex-1" />
                 </div>
-              )}
+              </div>
+            </div>
 
-              {batch.running && (
-                <div className="rounded-2xl border border-base-300 bg-base-100/50 p-4 space-y-2">
-                  <div className="flex items-center justify-between text-sm">
-                    <div className="font-semibold">AI Progress</div>
-                    <div className="opacity-70">
-                      {batch.done}/{batch.total} ({progressPct}%){batch.errors ? ` • errors: ${batch.errors}` : ""}
+            {/* RIGHT: Parse & Review */}
+            <div className="flex-1 flex">
+              <div className="card bg-base-100 border border-base-300 rounded-2xl w-full h-full">
+                <div className="card-body space-y-5 h-full">
+                  <div className="flex items-start justify-between gap-3 flex-wrap">
+                    <div>
+                      <h2 className="text-xl font-bold">2) Parse & Review</h2>
+                      <p className="text-sm opacity-70">
+                        {user ? "Parse creates a Project and saves cards for persistent AI review." : "Parse locally, edit, export. Login to persist + AI review."}
+                      </p>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2">
+                      <div className="rounded-xl border border-base-300 bg-base-200/40 px-3 py-2 text-center">
+                        <div className="text-xs opacity-70">Total</div>
+                        <div className="text-xl font-extrabold text-primary leading-none">{parsedCount}</div>
+                      </div>
+                      <div className="rounded-xl border border-base-300 bg-base-200/40 px-3 py-2 text-center">
+                        <div className="text-xs opacity-70">Shown</div>
+                        <div className="text-xl font-extrabold text-primary leading-none">{filteredCount}</div>
+                      </div>
                     </div>
                   </div>
-                  <progress className="progress progress-primary w-full" value={batch.done} max={batch.total} />
-                  <div className="text-xs opacity-70">
-                    Mode: <span className="font-semibold">{batch.mode}</span> • {batch.apply ? "Applying" : "Reviewing"}
+
+                  {/* Controls row */}
+                  <div className="grid md:grid-cols-3 gap-3">
+                    <div className="rounded-2xl border border-base-300 bg-base-200/40 p-4 space-y-2">
+                      <div className="text-sm font-semibold">Filter</div>
+                      <div className="text-xs opacity-70">Show all cards or a subset.</div>
+                      <select className="select select-bordered w-full" value={filterMode} onChange={(e) => setFilterMode(e.target.value as FilterMode)}>
+                        <option value="all">All</option>
+                        <option value="qa">Q&A only</option>
+                        <option value="mcq">MCQ only</option>
+                      </select>
+                    </div>
+
+                    <div className="rounded-2xl border border-base-300 bg-base-200/40 p-4 space-y-2">
+                      <div className="text-sm font-semibold">MCQ option style</div>
+                      <div className="text-xs opacity-70">Affects preview/export and what AI sees.</div>
+                      <select className="select select-bordered w-full" value={mcqStyle} onChange={(e) => setMcqStyle(e.target.value as McqStyle)}>
+                        <option value="1)">1)</option>
+                        <option value="1.">1.</option>
+                        <option value="A)">A)</option>
+                        <option value="a)">a)</option>
+                        <option value="A.">A.</option>
+                        <option value="a.">a.</option>
+                      </select>
+                    </div>
+
+                    <div className="rounded-2xl border border-base-300 bg-base-200/40 p-4 space-y-2">
+                      <div className="text-sm font-semibold">AI English (paid)</div>
+                      <div className="text-xs opacity-70">Controls AI output style.</div>
+                      <select
+                        className="select select-bordered w-full"
+                        value={englishVariant}
+                        onChange={(e) => setEnglishVariant(e.target.value as EnglishVariant)}
+                        disabled={!canAI}
+                        title={!canAI ? "Requires a paid plan" : "Choose AI review English"}
+                      >
+                        <option value="uk_au">English (UK/AUS)</option>
+                        <option value="us">English (US)</option>
+                      </select>
+                      {!canAI && <div className="text-xs opacity-70">Subscribe in Account to enable this.</div>}
+                    </div>
                   </div>
-                </div>
-              )}
 
-              {!user && (
-                <div className="alert alert-info">
-                  <span>Guest mode works for parse/edit/export. Login to subscribe + AI.</span>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* 2) Parse & Review */}
-          <div className="card bg-base-100 border border-base-300 rounded-2xl">
-            <div className="card-body space-y-4">
-              <div className="flex items-start justify-between gap-3 flex-wrap">
-                <div>
-                  <h2 className="text-xl font-bold">2) Parse & Review</h2>
-                  <p className="text-sm opacity-70">
-                    {user ? "Parse creates a Project and saves cards for persistent AI review." : "Parse locally, edit, export. Login to persist + AI review."}
-                  </p>
-                </div>
-
-                <div className="flex flex-wrap gap-2">
-                  <div className="rounded-xl border border-base-300 bg-base-200/40 px-3 py-2 text-center">
-                    <div className="text-xs opacity-70">Total</div>
-                    <div className="text-xl font-extrabold text-primary leading-none">{parsedCount}</div>
+                  {/* Primary buttons: symmetrical 3-wide */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <button className="btn btn-primary w-full" disabled={!raw || busy} onClick={doParse}>
+                      Parse
+                    </button>
+                    <button className="btn btn-outline w-full" disabled={busy} onClick={clearAll}>
+                      Clear
+                    </button>
+                    <button className="btn btn-secondary w-full" disabled={!parsedCount || busy} onClick={exportCSV}>
+                      Export CSV
+                    </button>
                   </div>
-                  <div className="rounded-xl border border-base-300 bg-base-200/40 px-3 py-2 text-center">
-                    <div className="text-xs opacity-70">Shown</div>
-                    <div className="text-xl font-extrabold text-primary leading-none">{filteredCount}</div>
+
+                  {/* AI buttons: symmetrical 3-wide x 2 rows */}
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <button className="btn btn-ghost w-full" disabled={!parsedCount || busy || !canAI} onClick={() => void aiReviewAll(false, "content")}>
+                        AI Review all (content)
+                      </button>
+                      <button className="btn btn-ghost w-full" disabled={!parsedCount || busy || !canAI} onClick={() => void aiReviewAll(false, "format")}>
+                        AI Review all (format)
+                      </button>
+                      <button className="btn btn-ghost w-full" disabled={!parsedCount || busy || !canAI} onClick={() => void aiReviewAll(false, "both")}>
+                        AI Review all (both)
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <button className="btn btn-outline w-full" disabled={!parsedCount || busy || !canAI} onClick={() => void aiReviewAll(true, "content")}>
+                        Apply AI all (content)
+                      </button>
+                      <button className="btn btn-outline w-full" disabled={!parsedCount || busy || !canAI} onClick={() => void aiReviewAll(true, "format")}>
+                        Apply AI all (format)
+                      </button>
+                      <button className="btn btn-outline w-full" disabled={!parsedCount || busy || !canAI} onClick={() => void aiReviewAll(true, "both")}>
+                        Apply AI all (both)
+                      </button>
+                    </div>
                   </div>
-                </div>
-              </div>
 
-              {/* Controls row */}
-              <div className="grid md:grid-cols-3 gap-3">
-                <div className="rounded-2xl border border-base-300 bg-base-200/40 p-4 space-y-2">
-                  <div className="text-sm font-semibold">Filter</div>
-                  <div className="text-xs opacity-70">Show all cards or a subset.</div>
-                  <select className="select select-bordered w-full" value={filterMode} onChange={(e) => setFilterMode(e.target.value as FilterMode)}>
-                    <option value="all">All</option>
-                    <option value="qa">Q&A only</option>
-                    <option value="mcq">MCQ only</option>
-                  </select>
-                </div>
-
-                <div className="rounded-2xl border border-base-300 bg-base-200/40 p-4 space-y-2">
-                  <div className="text-sm font-semibold">MCQ option style</div>
-                  <div className="text-xs opacity-70">Affects preview/export and what AI sees.</div>
-                  <select className="select select-bordered w-full" value={mcqStyle} onChange={(e) => setMcqStyle(e.target.value as McqStyle)}>
-                    <option value="1)">1)</option>
-                    <option value="1.">1.</option>
-                    <option value="A)">A)</option>
-                    <option value="a)">a)</option>
-                    <option value="A.">A.</option>
-                    <option value="a.">a.</option>
-                  </select>
-                </div>
-
-                <div className="rounded-2xl border border-base-300 bg-base-200/40 p-4 space-y-2">
-                  <div className="text-sm font-semibold">AI English (paid)</div>
-                  <div className="text-xs opacity-70">Controls AI output style.</div>
-                  <select
-                    className="select select-bordered w-full"
-                    value={englishVariant}
-                    onChange={(e) => setEnglishVariant(e.target.value as EnglishVariant)}
-                    disabled={!canAI}
-                    title={!canAI ? "Requires a paid plan" : "Choose AI review English"}
-                  >
-                    <option value="uk_au">English (UK/AUS)</option>
-                    <option value="us">English (US)</option>
-                  </select>
-                  {!canAI && <div className="text-xs opacity-70">Subscribe in Account to enable this.</div>}
-                </div>
-              </div>
-
-              {/* Action buttons */}
-              <div className="flex flex-col gap-3 pt-1">
-                <div className="flex flex-col sm:flex-row gap-3">
-                  <button className="btn btn-primary" disabled={!raw || busy} onClick={doParse}>
-                    Parse
-                  </button>
-                  <button className="btn btn-outline" disabled={busy} onClick={clearAll}>
-                    Clear
-                  </button>
-                  <button className="btn btn-secondary" disabled={!parsedCount || busy} onClick={exportCSV}>
-                    Export CSV
-                  </button>
-                </div>
-
-                <div className="flex flex-col sm:flex-row gap-3">
-                  <button className="btn btn-ghost" disabled={!parsedCount || busy || !canAI} onClick={() => void aiReviewAll(false, "content")}>
-                    AI Review all (content)
-                  </button>
-                  <button className="btn btn-ghost" disabled={!parsedCount || busy || !canAI} onClick={() => void aiReviewAll(false, "format")}>
-                    AI Review all (format)
-                  </button>
-                  <button className="btn btn-ghost" disabled={!parsedCount || busy || !canAI} onClick={() => void aiReviewAll(false, "both")}>
-                    AI Review all (both)
-                  </button>
-                </div>
-
-                <div className="flex flex-col sm:flex-row gap-3">
-                  <button className="btn btn-outline" disabled={!parsedCount || busy || !canAI} onClick={() => void aiReviewAll(true, "content")}>
-                    Apply AI all (content)
-                  </button>
-                  <button className="btn btn-outline" disabled={!parsedCount || busy || !canAI} onClick={() => void aiReviewAll(true, "format")}>
-                    Apply AI all (format)
-                  </button>
-                  <button className="btn btn-outline" disabled={!parsedCount || busy || !canAI} onClick={() => void aiReviewAll(true, "both")}>
-                    Apply AI all (both)
-                  </button>
+                  {/* Keep right card nicely filled so heights match naturally */}
+                  <div className="flex-1" />
                 </div>
               </div>
             </div>
@@ -847,7 +844,6 @@ export default function Workflow() {
                                 .catch((e: any) => setStatus(e?.message ? `AI Review failed: ${e.message}` : "AI Review failed."))
                                 .finally(() => setBusy(false));
                             }}
-                            title={!isPersisted ? "Parse while logged in to persist cards" : "AI Review (content)"}
                           >
                             Review
                           </button>
@@ -863,7 +859,6 @@ export default function Workflow() {
                                 .catch((e: any) => setStatus(e?.message ? `AI Review failed: ${e.message}` : "AI Review failed."))
                                 .finally(() => setBusy(false));
                             }}
-                            title={!isPersisted ? "Parse while logged in to persist cards" : "AI Review (format)"}
                           >
                             Format
                           </button>
@@ -879,16 +874,15 @@ export default function Workflow() {
                                 .catch((e: any) => setStatus(e?.message ? `AI Apply failed: ${e.message}` : "AI Apply failed."))
                                 .finally(() => setBusy(false));
                             }}
-                            title={!isPersisted ? "Parse while logged in to persist cards" : "Apply AI (both)"}
                           >
                             Apply
                           </button>
 
-                          <button className="btn btn-xs btn-ghost" disabled={busy} onClick={() => toggleEdit(c.id)} title="Toggle edit">
+                          <button className="btn btn-xs btn-ghost" disabled={busy} onClick={() => toggleEdit(c.id)}>
                             {isEditing ? "Close" : "Edit"}
                           </button>
 
-                          <button className="btn btn-xs btn-ghost" disabled={busy} onClick={() => void deleteCard(c.id)} title="Delete card">
+                          <button className="btn btn-xs btn-ghost" disabled={busy} onClick={() => void deleteCard(c.id)}>
                             Delete
                           </button>
                         </div>
