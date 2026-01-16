@@ -33,7 +33,6 @@ function useActiveOnScroll(count: number) {
   React.useEffect(() => {
     const observer = new IntersectionObserver(
       (entries) => {
-        // choose the most visible intersecting item
         const visible = entries
           .filter((e) => e.isIntersecting)
           .sort((a, b) => (b.intersectionRatio ?? 0) - (a.intersectionRatio ?? 0))[0];
@@ -53,15 +52,32 @@ function useActiveOnScroll(count: number) {
 }
 
 function BadgeNumber({ n, active }: { n: number; active: boolean }) {
-  return (
-    <div className={["badge", active ? "badge-primary" : "badge-ghost"].join(" ")}>
-      {n}
-    </div>
-  );
+  return <div className={["badge", active ? "badge-primary" : "badge-ghost"].join(" ")}>{n}</div>;
 }
 
 export default function Home() {
   const { refs, active, setActive } = useActiveOnScroll(STEPS.length);
+
+  // These examples are intentionally formatted exactly like the Workflow "Front/Back (preview)" blocks.
+  const qaFront = "What does the contrast improvement factor (CIF) represent?";
+  const qaBack = [
+    "**Definition**",
+    "CIF = (contrast with grid) / (contrast without grid)",
+    "",
+    "**Typical values**",
+    "- ~2 for general radiography",
+    "- ~1.5 for mammography",
+  ].join("\n");
+
+  const mcqFront = [
+    "Which statement about anti-scatter grids is correct?",
+    "1) Grid ratio is defined as strip height / interspace width",
+    "2) Higher grid ratio generally reduces scatter more effectively",
+    "3) Grid frequency is the number of lead strips per cm",
+    "4) All of the above",
+  ].join("\n");
+
+  const mcqBack = "4) All of the above";
 
   return (
     <div className="-mx-4 md:-mx-6 lg:-mx-8">
@@ -72,15 +88,13 @@ export default function Home() {
         <div className="max-w-6xl mx-auto">
           <div className="text-center space-y-5">
             <h1 className="text-4xl md:text-6xl font-extrabold tracking-tight leading-tight">
-              Turn{" "}
-              <span className="text-primary">Notion</span> notes into{" "}
-              <span className="text-primary">Anki</span> cards —{" "}
-              <span className="text-primary">fast</span>.
+              Turn <span className="text-primary">Notion</span> notes into <span className="text-primary">Anki</span>{" "}
+              cards — <span className="text-primary">fast</span>.
             </h1>
 
             <p className="opacity-80 max-w-2xl mx-auto text-base md:text-lg">
-              Upload a Notion Markdown export, generate cards, preview, edit, then export CSV to Anki.
-              Optional AI review on paid plans.
+              Upload a Notion Markdown export, generate cards, preview, edit, then export CSV to Anki. Optional AI review
+              on paid plans.
             </p>
 
             <div className="pt-3 flex flex-col sm:flex-row justify-center gap-3">
@@ -95,10 +109,7 @@ export default function Home() {
               </Link>
             </div>
 
-            {/* subtle supporting line */}
-            <div className="text-xs md:text-sm opacity-60">
-              Built for speed. Designed for clean output. Made for spaced repetition.
-            </div>
+            <div className="text-xs md:text-sm opacity-60">Built for speed. Designed for clean output. Made for spaced repetition.</div>
           </div>
         </div>
       </section>
@@ -113,9 +124,7 @@ export default function Home() {
             <h2 className="text-2xl md:text-3xl font-bold">
               The <span className="text-primary">N2A</span> flow
             </h2>
-            <p className="opacity-75 mt-2">
-              Scroll — steps highlight automatically. (Also looks great on hover.)
-            </p>
+            <p className="opacity-75 mt-2">Scroll — steps highlight automatically. (Also looks great on hover.)</p>
           </div>
 
           <div className="space-y-4">
@@ -144,18 +153,10 @@ export default function Home() {
                       <div className="flex items-center justify-between gap-3">
                         <div className="font-semibold text-lg">{s.title}</div>
 
-                        {/* right-side indicator */}
-                        <div
-                          className={[
-                            "h-2 w-2 rounded-full transition-all",
-                            isActive ? "bg-primary" : "bg-base-300 group-hover:bg-primary/60",
-                          ].join(" ")}
-                        />
+                        <div className={["h-2 w-2 rounded-full transition-all", isActive ? "bg-primary" : "bg-base-300 group-hover:bg-primary/60"].join(" ")} />
                       </div>
 
-                      <div className="text-sm md:text-base opacity-80 mt-1">
-                        {s.body}
-                      </div>
+                      <div className="text-sm md:text-base opacity-80 mt-1">{s.body}</div>
                     </div>
                   </div>
                 </div>
@@ -172,90 +173,61 @@ export default function Home() {
       </section>
 
       {/* =========================
-          PREVIEW (Q&A + MCQ examples)
+          PREVIEW (Match Workflow styling)
          ========================= */}
       <section className="px-4 md:px-6 lg:px-8 py-12 md:py-14 bg-base-100">
         <div className="max-w-6xl mx-auto">
           <div className="text-center mb-8">
             <h2 className="text-2xl md:text-3xl font-bold">
-              Preview your <span className="text-primary">cards</span> before export
+              Preview exactly what <span className="text-primary">Workflow</span> generates
             </h2>
-            <p className="opacity-75 mt-2">
-              Clean, readable previews so you can fix anything before it hits Anki.
-            </p>
+            <p className="opacity-75 mt-2">Same look, same structure — so you know what will export to Anki.</p>
           </div>
 
           <div className="grid lg:grid-cols-2 gap-5">
-            {/* Q&A Preview */}
-            <div className="card bg-base-200/60 border border-base-300 rounded-2xl">
+            {/* Q&A Preview (Workflow-style) */}
+            <div className="card bg-base-200/40 border border-base-300 rounded-2xl">
               <div className="card-body space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="badge badge-primary badge-outline">Q&amp;A</div>
+                <div className="flex items-center justify-between gap-2">
+                  <div className="badge badge-outline">QA</div>
                   <div className="text-xs opacity-60">Example</div>
                 </div>
 
-                <div className="text-lg font-semibold">
-                  Question: What does the contrast improvement factor (CIF) represent?
-                </div>
+                <div className="text-xs font-semibold opacity-70">Front (preview)</div>
+                <pre className="whitespace-pre-wrap text-sm leading-relaxed bg-base-100/40 border border-base-300 rounded-xl p-3">
+                  {qaFront}
+                </pre>
 
-                <div className="rounded-xl bg-base-100 border border-base-300 p-4">
-                  <div className="text-sm font-semibold opacity-80 mb-1">Answer</div>
-                  <div className="text-sm md:text-base opacity-80 leading-relaxed">
-                    CIF = (contrast with grid) / (contrast without grid). It’s typically ~2 in general
-                    radiography and ~1.5 in mammography.
-                  </div>
-                </div>
+                <div className="text-xs font-semibold opacity-70">Back (preview)</div>
+                <pre className="whitespace-pre-wrap text-sm leading-relaxed bg-base-100/40 border border-base-300 rounded-xl p-3">
+                  {qaBack}
+                </pre>
 
-                <div className="flex gap-2">
-                  <button className="btn btn-sm btn-outline">Edit</button>
-                  <button className="btn btn-sm btn-primary">Accept</button>
+                <div className="text-xs opacity-60">
+                  Tip: Keep answers as short lines / bullets — it exports cleaner and reads better in Anki.
                 </div>
               </div>
             </div>
 
-            {/* MCQ Preview */}
-            <div className="card bg-base-200/60 border border-base-300 rounded-2xl">
+            {/* MCQ Preview (Workflow-style) */}
+            <div className="card bg-base-200/40 border border-base-300 rounded-2xl">
               <div className="card-body space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="badge badge-primary badge-outline">MCQ</div>
+                <div className="flex items-center justify-between gap-2">
+                  <div className="badge badge-outline">MCQ</div>
                   <div className="text-xs opacity-60">Example</div>
                 </div>
 
-                <div className="text-lg font-semibold">
-                  MCQ: Which statement about anti-scatter grids is correct?
-                </div>
+                <div className="text-xs font-semibold opacity-70">Front (preview)</div>
+                <pre className="whitespace-pre-wrap text-sm leading-relaxed bg-base-100/40 border border-base-300 rounded-xl p-3">
+                  {mcqFront}
+                </pre>
 
-                <div className="rounded-xl bg-base-100 border border-base-300 p-4 space-y-2">
-                  {[
-                    "Grid ratio is defined as strip height / interspace width.",
-                    "Higher grid ratio generally reduces scatter more effectively.",
-                    "Grid frequency is the number of lead strips per cm.",
-                    "All of the above.",
-                  ].map((opt, idx) => (
-                    <label
-                      key={opt}
-                      className="flex items-start gap-3 p-2 rounded-lg border border-base-200 hover:border-primary/30 transition"
-                    >
-                      <input
-                        type="radio"
-                        name="mcq-demo"
-                        className="radio radio-primary mt-1"
-                        defaultChecked={idx === 3}
-                        readOnly
-                      />
-                      <span className="opacity-85">{opt}</span>
-                    </label>
-                  ))}
-                </div>
+                <div className="text-xs font-semibold opacity-70">Back (preview)</div>
+                <pre className="whitespace-pre-wrap text-sm leading-relaxed bg-base-100/40 border border-base-300 rounded-xl p-3">
+                  {mcqBack}
+                </pre>
 
-                <div className="text-sm opacity-70">
-                  Correct answer: <span className="text-primary font-semibold">All of the above</span>
-                </div>
-
-                <div className="flex gap-2">
-                  <button className="btn btn-sm btn-outline">Edit</button>
-                  <button className="btn btn-sm btn-primary">Accept</button>
-                </div>
+                <div className="text-xs opacity-60">MCQ option style (1), A), etc. is controlled in Workflow and affects export.</div>
               </div>
             </div>
           </div>
