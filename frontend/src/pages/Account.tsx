@@ -176,22 +176,22 @@ export default function Account() {
       key: "silver",
       title: "Silver",
       subtitle: "AI review for smaller projects.",
-      priceLabel: "$5",
-      features: ["Everything in Free", "Up to 3,000 AI reviews / month", "AI review modes: content / format / both", "Apply AI suggestions (when available)"],
+      priceLabel: "$5/month",
+      features: ["Everything in Free", "Up to 3,000 AI reviews / month", "AI review modes: content / format / both", "Apply AI suggestions"],
     },
     {
       key: "gold",
       title: "Gold",
       subtitle: "Best value for regular studying.",
-      priceLabel: "$7",
-      features: ["Everything in Silver", "Up to 5,000 AI reviews / month", "AI review modes: content / format / both", "Apply AI suggestions (when available)"],
+      priceLabel: "$7/month",
+      features: ["Everything in Silver", "Up to 5,000 AI reviews / month", "AI review modes: content / format / both", "Apply AI suggestions"],
     },
     {
       key: "platinum",
       title: "Platinum",
       subtitle: "Power users + heavy AI review.",
-      priceLabel: "$10",
-      features: ["Everything in Gold", "Up to 10,000 AI reviews / month", "AI review modes: content / format / both", "Apply AI suggestions (when available)"],
+      priceLabel: "$10/month",
+      features: ["Everything in Gold", "Up to 10,000 AI reviews / month", "AI review modes: content / format / both", "Apply AI suggestions"],
     },
   ];
 
