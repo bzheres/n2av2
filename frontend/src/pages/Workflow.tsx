@@ -1,3 +1,4 @@
+// src/pages/Workflow.tsx
 import React from "react";
 import UploadBox from "../components/UploadBox";
 import { meCached } from "../auth";
@@ -7,7 +8,6 @@ type CardType = "qa" | "mcq";
 type EnglishVariant = "us" | "uk_au";
 type McqStyle = "1)" | "1." | "A)" | "a)" | "A." | "a.";
 type FilterMode = "all" | "qa" | "mcq";
-
 type AIMode = "content" | "format" | "both";
 
 type Card = {
@@ -226,7 +226,10 @@ export default function Workflow() {
   // Local UI memory: mark cards "reviewed" even if backend returns null AI fields
   const [aiReviewedIds, setAiReviewedIds] = React.useState<Set<string>>(() => new Set());
 
-  // Batch progress
+  // Per-card spinner (single-card AI only)
+  const [aiLoadingIds, setAiLoadingIds] = React.useState<Set<string>>(() => new Set());
+
+  // Batch progress (AI review ALL only)
   const [batch, setBatch] = React.useState<{
     running: boolean;
     total: number;
@@ -318,6 +321,7 @@ export default function Workflow() {
     setEditingIds(new Set());
     setProjectId(null);
     setAiReviewedIds(new Set());
+    setAiLoadingIds(new Set());
     setBatch({ running: false, total: 0, done: 0, errors: 0, mode: null, apply: false });
   }
 
@@ -343,6 +347,11 @@ export default function Workflow() {
       return next;
     });
     setAiReviewedIds((prev) => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+    setAiLoadingIds((prev) => {
       const next = new Set(prev);
       next.delete(id);
       return next;
@@ -380,6 +389,7 @@ export default function Workflow() {
         setEditingIds(new Set());
         setProjectId(null);
         setAiReviewedIds(new Set());
+        setAiLoadingIds(new Set());
         setStatus(`Parsed ${localCards.length} card${localCards.length === 1 ? "" : "s"} (guest mode).`);
         return;
       }
@@ -417,6 +427,7 @@ export default function Workflow() {
       setCards(persisted);
       setEditingIds(new Set());
       setAiReviewedIds(new Set());
+      setAiLoadingIds(new Set());
       setStatus(`Parsed & saved ${persisted.length} card${persisted.length === 1 ? "" : "s"} to Project #${pid}.`);
     } catch (e: any) {
       setStatus(e?.message ? `Parse failed: ${e.message}` : "Parse failed.");
@@ -460,63 +471,78 @@ export default function Workflow() {
       return;
     }
 
-    // Mark as reviewed immediately for UI
+    // mark reviewed for UI
     setAiReviewedIds((prev) => {
       const next = new Set(prev);
       next.add(id);
       return next;
     });
 
-    const res = await apiFetch<{
-      ok: boolean;
-      result: { changed: boolean; flag?: string | null; feedback?: string | null; front: string; back: string };
-      usage?: { used: number; limit: number };
-    }>("/ai/review", {
-      method: "POST",
-      body: JSON.stringify({
-        project_id: projectId,
-        card_id: Number(id),
-        variant: toAiVariant(englishVariant),
-        apply,
-        mode,
-      }),
+    // per-card spinner
+    setAiLoadingIds((prev) => {
+      const next = new Set(prev);
+      next.add(id);
+      return next;
     });
 
-    const changed = !!res.result.changed;
-    const flag = res.result.flag ?? "ok";
-    const feedback = (res.result.feedback ?? "").trim();
+    try {
+      const res = await apiFetch<{
+        ok: boolean;
+        result: { changed: boolean; flag?: string | null; feedback?: string | null; front: string; back: string };
+        usage?: { used: number; limit: number };
+      }>("/ai/review", {
+        method: "POST",
+        body: JSON.stringify({
+          project_id: projectId,
+          card_id: Number(id),
+          variant: toAiVariant(englishVariant),
+          apply,
+          mode,
+        }),
+      });
 
-    setCards((prev) =>
-      prev.map((c) => {
-        if (c.id !== id) return c;
-        const next: Card = {
-          ...c,
-          ai_changed: changed,
-          ai_flag: flag,
-          ai_feedback:
-            feedback ||
-            (changed
-              ? mode === "format"
-                ? "AI suggested formatting improvements (see suggested front/back)."
-                : "AI suggested improvements (see suggested front/back)."
-              : "Looks good — no changes suggested."),
-          ai_suggest_front: res.result.front ?? null,
-          ai_suggest_back: res.result.back ?? null,
-        };
+      const changed = !!res.result.changed;
+      const flag = res.result.flag ?? "ok";
+      const feedback = (res.result.feedback ?? "").trim();
 
-        if (apply && changed) {
-          next.front = res.result.front;
-          next.back = res.result.back;
-        }
+      setCards((prev) =>
+        prev.map((c) => {
+          if (c.id !== id) return c;
+          const next: Card = {
+            ...c,
+            ai_changed: changed,
+            ai_flag: flag,
+            ai_feedback:
+              feedback ||
+              (changed
+                ? mode === "format"
+                  ? "AI suggested formatting improvements (see suggested front/back)."
+                  : "AI suggested improvements (see suggested front/back)."
+                : "Looks good — no changes suggested."),
+            ai_suggest_front: res.result.front ?? null,
+            ai_suggest_back: res.result.back ?? null,
+          };
+
+          if (apply && changed) {
+            next.front = res.result.front;
+            next.back = res.result.back;
+          }
+          return next;
+        })
+      );
+
+      if (apply && changed) {
+        await persistCardEditIfPossible(id, res.result.front, res.result.back);
+      }
+
+      return res;
+    } finally {
+      setAiLoadingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
         return next;
-      })
-    );
-
-    if (apply && changed) {
-      await persistCardEditIfPossible(id, res.result.front, res.result.back);
+      });
     }
-
-    return res;
   }
 
   async function runWithConcurrency<T>(items: T[], limit: number, worker: (item: T) => Promise<void>) {
@@ -577,6 +603,32 @@ export default function Workflow() {
 
   const progressPct = batch.total ? Math.round((batch.done / batch.total) * 100) : 0;
 
+  // ✅ Full-page overlay ONLY for AI Review ALL
+  if (batch.running) {
+    return (
+      <div className="fixed inset-0 z-[1000] bg-base-100/90 backdrop-blur flex items-center justify-center px-6">
+        <div className="max-w-lg w-full space-y-6 text-center">
+          <div className="flex justify-center">
+            <span className="loading loading-spinner loading-lg" />
+          </div>
+
+          <div className="space-y-1">
+            <div className="text-lg font-semibold">
+              {batch.apply ? "Applying AI to all cards…" : "Reviewing all cards…"}
+            </div>
+            <div className="text-sm opacity-70">
+              Mode: <span className="font-semibold">{batch.mode}</span> • {batch.done}/{batch.total} ({progressPct}%)
+              {batch.errors ? ` • errors: ${batch.errors}` : ""}
+            </div>
+          </div>
+
+          <progress className="progress progress-primary w-full" value={batch.done} max={batch.total} />
+          <div className="text-xs opacity-60">Please keep this tab open until the process completes.</div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="-mx-4 md:-mx-6 lg:-mx-8">
       {/* HEADER BAND */}
@@ -625,6 +677,7 @@ export default function Workflow() {
                       setStatus(null);
                       setProjectId(null);
                       setAiReviewedIds(new Set());
+                      setAiLoadingIds(new Set());
                       setBatch({ running: false, total: 0, done: 0, errors: 0, mode: null, apply: false });
                     }}
                   />
@@ -639,28 +692,12 @@ export default function Workflow() {
                     </div>
                   )}
 
-                  {batch.running && (
-                    <div className="rounded-2xl border border-base-300 bg-base-100/50 p-4 space-y-2">
-                      <div className="flex items-center justify-between text-sm">
-                        <div className="font-semibold">AI Progress</div>
-                        <div className="opacity-70">
-                          {batch.done}/{batch.total} ({progressPct}%){batch.errors ? ` • errors: ${batch.errors}` : ""}
-                        </div>
-                      </div>
-                      <progress className="progress progress-primary w-full" value={batch.done} max={batch.total} />
-                      <div className="text-xs opacity-70">
-                        Mode: <span className="font-semibold">{batch.mode}</span> • {batch.apply ? "Applying" : "Reviewing"}
-                      </div>
-                    </div>
-                  )}
-
                   {!user && (
                     <div className="alert alert-info">
                       <span>Guest mode works for parse/edit/export. Login to subscribe + AI.</span>
                     </div>
                   )}
 
-                  {/* Filler to push content nicely (keeps visual balance when right side is tall) */}
                   <div className="flex-1" />
                 </div>
               </div>
@@ -772,7 +809,6 @@ export default function Workflow() {
                     </div>
                   </div>
 
-                  {/* Keep right card nicely filled so heights match naturally */}
                   <div className="flex-1" />
                 </div>
               </div>
@@ -805,6 +841,7 @@ export default function Workflow() {
               {filteredCards.map((c) => {
                 const isEditing = editingIds.has(c.id);
                 const isPersisted = /^\d+$/.test(c.id) && !!projectId;
+                const isAiLoading = aiLoadingIds.has(c.id);
 
                 const previewFront = c.card_type === "mcq" ? formatMcqOptions(c.front, mcqStyle) : c.front;
                 const previewBack = c.card_type === "mcq" ? formatMcqAnswer(c.back, mcqStyle) : c.back;
@@ -832,17 +869,17 @@ export default function Workflow() {
                       <div className="flex items-center justify-between gap-2">
                         <div className="badge badge-outline">{c.card_type.toUpperCase()}</div>
 
-                        <div className="flex gap-2 flex-wrap justify-end">
+                        <div className="flex gap-2 flex-wrap justify-end items-center">
+                          {isAiLoading && <span className="loading loading-spinner loading-xs opacity-80" />}
+
                           <button
                             className="btn btn-xs btn-ghost"
-                            disabled={busy || !canAI || !isPersisted}
+                            disabled={busy || !canAI || !isPersisted || isAiLoading}
                             onClick={() => {
-                              setBusy(true);
-                              setStatus("Running AI review (content)...");
+                              setStatus("Running AI review (content)…");
                               void aiReviewCard(c.id, false, "content")
                                 .then(() => setStatus("AI review complete."))
-                                .catch((e: any) => setStatus(e?.message ? `AI Review failed: ${e.message}` : "AI Review failed."))
-                                .finally(() => setBusy(false));
+                                .catch((e: any) => setStatus(e?.message ? `AI Review failed: ${e.message}` : "AI Review failed."));
                             }}
                           >
                             Review
@@ -850,14 +887,12 @@ export default function Workflow() {
 
                           <button
                             className="btn btn-xs btn-ghost"
-                            disabled={busy || !canAI || !isPersisted}
+                            disabled={busy || !canAI || !isPersisted || isAiLoading}
                             onClick={() => {
-                              setBusy(true);
-                              setStatus("Running AI review (format)...");
+                              setStatus("Running AI review (format)…");
                               void aiReviewCard(c.id, false, "format")
                                 .then(() => setStatus("AI review complete."))
-                                .catch((e: any) => setStatus(e?.message ? `AI Review failed: ${e.message}` : "AI Review failed."))
-                                .finally(() => setBusy(false));
+                                .catch((e: any) => setStatus(e?.message ? `AI Review failed: ${e.message}` : "AI Review failed."));
                             }}
                           >
                             Format
@@ -865,24 +900,22 @@ export default function Workflow() {
 
                           <button
                             className="btn btn-xs btn-ghost"
-                            disabled={busy || !canAI || !isPersisted}
+                            disabled={busy || !canAI || !isPersisted || isAiLoading}
                             onClick={() => {
-                              setBusy(true);
-                              setStatus("Applying AI (both)...");
+                              setStatus("Applying AI (both)…");
                               void aiReviewCard(c.id, true, "both")
                                 .then(() => setStatus("AI applied."))
-                                .catch((e: any) => setStatus(e?.message ? `AI Apply failed: ${e.message}` : "AI Apply failed."))
-                                .finally(() => setBusy(false));
+                                .catch((e: any) => setStatus(e?.message ? `AI Apply failed: ${e.message}` : "AI Apply failed."));
                             }}
                           >
                             Apply
                           </button>
 
-                          <button className="btn btn-xs btn-ghost" disabled={busy} onClick={() => toggleEdit(c.id)}>
+                          <button className="btn btn-xs btn-ghost" disabled={busy || isAiLoading} onClick={() => toggleEdit(c.id)}>
                             {isEditing ? "Close" : "Edit"}
                           </button>
 
-                          <button className="btn btn-xs btn-ghost" disabled={busy} onClick={() => void deleteCard(c.id)}>
+                          <button className="btn btn-xs btn-ghost" disabled={busy || isAiLoading} onClick={() => void deleteCard(c.id)}>
                             Delete
                           </button>
                         </div>
