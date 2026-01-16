@@ -28,7 +28,6 @@ type Card = {
 /* Diff helper: line-based "good enough" visual diff for flashcards.   */
 /* - Added lines: primary-tinted highlight                             */
 /* - Removed lines: error-tinted + strikethrough                       */
-/* This is dependency-free and very readable for Anki-style cards.     */
 /* ------------------------------------------------------------------ */
 type DiffLine = { kind: "same" | "add" | "remove"; text: string };
 
@@ -55,13 +54,7 @@ function buildLineDiff(original: string, suggested: string): DiffLine[] {
   return out;
 }
 
-function DiffBlock({
-  original,
-  suggested,
-}: {
-  original: string;
-  suggested: string;
-}) {
+function DiffBlock({ original, suggested }: { original: string; suggested: string }) {
   const diff = React.useMemo(() => buildLineDiff(original, suggested), [original, suggested]);
 
   return (
@@ -77,10 +70,7 @@ function DiffBlock({
           }
           if (d.kind === "add") {
             return (
-              <div
-                key={idx}
-                className="rounded px-1 py-[1px] bg-primary/15 border border-primary/20"
-              >
+              <div key={idx} className="rounded px-1 py-[1px] bg-primary/15 border border-primary/20">
                 <span className="font-mono opacity-70">+ </span>
                 {d.text}
               </div>
@@ -291,6 +281,20 @@ function formatMcqAnswer(back: string, style: McqStyle): string {
   return rest ? `${label} ${rest}` : label;
 }
 
+function normFlag(flag: string | null | undefined) {
+  return (flag ?? "").trim().toLowerCase();
+}
+
+function isIncorrectFlag(flag: string | null | undefined) {
+  const f = normFlag(flag);
+  return f === "incorrect" || f === "wrong" || f.includes("incorrect");
+}
+
+function isFormatFlag(flag: string | null | undefined) {
+  const f = normFlag(flag);
+  return f.startsWith("format_") || f === "format_changed" || f === "format_ok";
+}
+
 export default function Workflow() {
   const [user, setUser] = React.useState<any>(null);
   const [authLoading, setAuthLoading] = React.useState(true);
@@ -313,13 +317,16 @@ export default function Workflow() {
   // Persistence
   const [projectId, setProjectId] = React.useState<number | null>(null);
 
-  // Local UI memory: mark cards "reviewed" even if backend returns null AI fields
+  // Local UI memory
   const [aiReviewedIds, setAiReviewedIds] = React.useState<Set<string>>(() => new Set());
 
-  // Per-card spinner (single-card AI only)
+  // Per-card spinner
   const [aiLoadingIds, setAiLoadingIds] = React.useState<Set<string>>(() => new Set());
 
-  // Batch progress (AI review ALL only)
+  // Track which mode was last run per card (so we can decide whether to show diff)
+  const [aiLastModeById, setAiLastModeById] = React.useState<Record<string, AIMode>>({});
+
+  // Batch progress
   const [batch, setBatch] = React.useState<{
     running: boolean;
     total: number;
@@ -412,6 +419,7 @@ export default function Workflow() {
     setProjectId(null);
     setAiReviewedIds(new Set());
     setAiLoadingIds(new Set());
+    setAiLastModeById({});
     setBatch({ running: false, total: 0, done: 0, errors: 0, mode: null, apply: false });
   }
 
@@ -444,6 +452,11 @@ export default function Workflow() {
     setAiLoadingIds((prev) => {
       const next = new Set(prev);
       next.delete(id);
+      return next;
+    });
+    setAiLastModeById((prev) => {
+      const next = { ...prev };
+      delete next[id];
       return next;
     });
 
@@ -480,6 +493,7 @@ export default function Workflow() {
         setProjectId(null);
         setAiReviewedIds(new Set());
         setAiLoadingIds(new Set());
+        setAiLastModeById({});
         setStatus(`Parsed ${localCards.length} card${localCards.length === 1 ? "" : "s"} (guest mode).`);
         return;
       }
@@ -518,6 +532,7 @@ export default function Workflow() {
       setEditingIds(new Set());
       setAiReviewedIds(new Set());
       setAiLoadingIds(new Set());
+      setAiLastModeById({});
       setStatus(`Parsed & saved ${persisted.length} card${persisted.length === 1 ? "" : "s"} to Project #${pid}.`);
     } catch (e: any) {
       setStatus(e?.message ? `Parse failed: ${e.message}` : "Parse failed.");
@@ -568,6 +583,9 @@ export default function Workflow() {
       return next;
     });
 
+    // remember which mode ran (for diff vs summary behavior)
+    setAiLastModeById((prev) => ({ ...prev, [id]: mode }));
+
     // per-card spinner
     setAiLoadingIds((prev) => {
       const next = new Set(prev);
@@ -598,6 +616,7 @@ export default function Workflow() {
       setCards((prev) =>
         prev.map((c) => {
           if (c.id !== id) return c;
+
           const next: Card = {
             ...c,
             ai_changed: changed,
@@ -606,13 +625,14 @@ export default function Workflow() {
               feedback ||
               (changed
                 ? mode === "format"
-                  ? "AI suggested formatting improvements (see suggested front/back)."
+                  ? "Formatting updated for clarity."
                   : "AI suggested improvements (see suggested front/back)."
                 : "Looks good — no changes suggested."),
             ai_suggest_front: res.result.front ?? null,
             ai_suggest_back: res.result.back ?? null,
           };
 
+          // apply is still respected client-side, but backend will also guard it for incorrect
           if (apply && changed) {
             next.front = res.result.front;
             next.back = res.result.back;
@@ -699,7 +719,7 @@ export default function Workflow() {
       <div className="fixed inset-0 z-[1000] bg-base-100/90 backdrop-blur flex items-center justify-center px-6">
         <div className="max-w-lg w-full space-y-6 text-center">
           <div className="flex justify-center">
-            <span className="loading loading-spinner loading-lg" />
+            <span className="loading loading-spinner loading-lg text-primary" />
           </div>
 
           <div className="space-y-1">
@@ -744,7 +764,6 @@ export default function Workflow() {
       {/* UPLOAD + PARSE BAND */}
       <section className="px-4 md:px-6 lg:px-8 py-10 md:py-12 bg-base-200">
         <div className="max-w-6xl mx-auto">
-          {/* Make the two columns equal height */}
           <div className="flex flex-col lg:flex-row gap-6 items-stretch">
             {/* LEFT: Upload */}
             <div className="lg:w-[420px] w-full flex">
@@ -766,6 +785,7 @@ export default function Workflow() {
                       setProjectId(null);
                       setAiReviewedIds(new Set());
                       setAiLoadingIds(new Set());
+                      setAiLastModeById({});
                       setBatch({ running: false, total: 0, done: 0, errors: 0, mode: null, apply: false });
                     }}
                   />
@@ -857,7 +877,7 @@ export default function Workflow() {
                     </div>
                   </div>
 
-                  {/* Primary buttons: symmetrical 3-wide */}
+                  {/* Primary buttons */}
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <button className="btn btn-primary w-full" disabled={!raw || busy} onClick={doParse}>
                       Parse
@@ -870,7 +890,7 @@ export default function Workflow() {
                     </button>
                   </div>
 
-                  {/* AI buttons: symmetrical 3-wide x 2 rows */}
+                  {/* AI buttons */}
                   <div className="space-y-3">
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                       <button className="btn btn-ghost w-full" disabled={!parsedCount || busy || !canAI} onClick={() => void aiReviewAll(false, "content")}>
@@ -945,8 +965,20 @@ export default function Workflow() {
                 const showAiPanel = hasAnyAiField || wasReviewedThisSession;
 
                 const changed = !!c.ai_changed;
-                const feedback = (c.ai_feedback ?? "").trim();
                 const flag = c.ai_flag ?? null;
+                const feedback = (c.ai_feedback ?? "").trim();
+
+                const incorrect = isIncorrectFlag(flag);
+                const lastMode = aiLastModeById[c.id];
+                const formatContext = lastMode === "format" || isFormatFlag(flag);
+
+                // Only show line-by-line diff if this is content/both review (or flagged as content-ish) AND changed
+                const showDiff = changed && !incorrect && !formatContext;
+
+                // For format-only: show suggested text, but not diff
+                const showPlainSuggested = changed && !incorrect && formatContext;
+
+                const disableApplyBecauseIncorrect = incorrect;
 
                 return (
                   <div
@@ -989,7 +1021,8 @@ export default function Workflow() {
 
                           <button
                             className="btn btn-xs btn-ghost"
-                            disabled={busy || !canAI || !isPersisted || isAiLoading}
+                            disabled={busy || !canAI || !isPersisted || isAiLoading || disableApplyBecauseIncorrect}
+                            title={disableApplyBecauseIncorrect ? "Cannot apply: card flagged as incorrect" : "Apply AI suggestions"}
                             onClick={() => {
                               setStatus("Applying AI (both)…");
                               void aiReviewCard(c.id, true, "both")
@@ -1014,35 +1047,83 @@ export default function Workflow() {
                         <div className="rounded-xl border border-base-300 bg-base-100/40 p-3 space-y-2">
                           <div className="flex items-center justify-between">
                             <div className="text-xs font-semibold opacity-70">AI result</div>
+
                             <div className="flex gap-2 items-center">
-                              <span className={["badge badge-sm", changed ? "badge-warning" : "badge-success"].join(" ")}>
-                                {changed ? "Changes suggested" : "Reviewed"}
-                              </span>
+                              {/* ✅ Very obvious incorrect */}
+                              {incorrect ? (
+                                <span className="badge badge-sm badge-error">Incorrect</span>
+                              ) : formatContext && changed ? (
+                                <span className="badge badge-sm badge-info">Formatting updated</span>
+                              ) : (
+                                <span className={["badge badge-sm", changed ? "badge-warning" : "badge-success"].join(" ")}>
+                                  {changed ? "Changes suggested" : "Reviewed"}
+                                </span>
+                              )}
+
                               {flag ? <span className="badge badge-sm badge-outline">{flag}</span> : null}
                             </div>
                           </div>
 
-                          <div className="text-sm whitespace-pre-wrap opacity-80">
-                            {feedback
-                              ? feedback
-                              : wasReviewedThisSession
-                              ? "AI ran successfully, but returned no feedback for this card."
-                              : "AI fields are empty for this card (no stored feedback)."}
-                          </div>
+                          {/* Incorrect callout */}
+                          {incorrect ? (
+                            <div className="rounded-xl border border-error/30 bg-error/10 p-3">
+                              <div className="font-semibold text-error">This card appears incorrect.</div>
+                              <div className="text-sm opacity-80 mt-1 whitespace-pre-wrap">
+                                {feedback || "AI flagged the original answer as incorrect. No replacement answer is provided."}
+                              </div>
+                              <div className="text-xs opacity-70 mt-2">
+                                Tip: edit the card manually, then re-run AI review.
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="text-sm whitespace-pre-wrap opacity-80">
+                              {feedback
+                                ? feedback
+                                : wasReviewedThisSession
+                                ? "AI ran successfully, but returned no feedback for this card."
+                                : "AI fields are empty for this card (no stored feedback)."}
+                            </div>
+                          )}
 
-                          {/* ✅ Highlighted suggested diff */}
-                          {changed && (c.ai_suggest_front || c.ai_suggest_back) && (
+                          {/* ✅ Suggested output block:
+                              - content/both => show diff
+                              - format => show plain suggested with small summary (no diff)
+                              - incorrect => show nothing
+                          */}
+                          {!incorrect && changed && (c.ai_suggest_front || c.ai_suggest_back) && (
                             <details className="collapse collapse-arrow border border-base-300 bg-base-200/40 rounded-xl">
-                              <summary className="collapse-title text-sm font-semibold">View suggested front/back (highlighted)</summary>
+                              <summary className="collapse-title text-sm font-semibold">
+                                {showDiff ? "View suggested front/back (changes highlighted)" : "View suggested front/back"}
+                              </summary>
+
                               <div className="collapse-content space-y-4">
+                                {/* FORMAT-only: quick reassurance message */}
+                                {showPlainSuggested && (
+                                  <div className="text-xs opacity-70">
+                                    Formatting changed for clarity (spacing/bullets/structure). Content meaning is intended to be unchanged.
+                                  </div>
+                                )}
+
                                 <div className="space-y-2">
-                                  <div className="text-xs font-semibold opacity-70">Suggested front (diff)</div>
-                                  <DiffBlock original={c.front} suggested={c.ai_suggest_front ?? ""} />
+                                  <div className="text-xs font-semibold opacity-70">Suggested front</div>
+                                  {showDiff ? (
+                                    <DiffBlock original={c.front} suggested={c.ai_suggest_front ?? ""} />
+                                  ) : (
+                                    <pre className="whitespace-pre-wrap text-sm leading-relaxed bg-base-100/40 border border-base-300 rounded-xl p-3">
+                                      {c.ai_suggest_front ?? ""}
+                                    </pre>
+                                  )}
                                 </div>
 
                                 <div className="space-y-2">
-                                  <div className="text-xs font-semibold opacity-70">Suggested back (diff)</div>
-                                  <DiffBlock original={c.back} suggested={c.ai_suggest_back ?? ""} />
+                                  <div className="text-xs font-semibold opacity-70">Suggested back</div>
+                                  {showDiff ? (
+                                    <DiffBlock original={c.back} suggested={c.ai_suggest_back ?? ""} />
+                                  ) : (
+                                    <pre className="whitespace-pre-wrap text-sm leading-relaxed bg-base-100/40 border border-base-300 rounded-xl p-3">
+                                      {c.ai_suggest_back ?? ""}
+                                    </pre>
+                                  )}
                                 </div>
                               </div>
                             </details>
