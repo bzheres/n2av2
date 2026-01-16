@@ -5,9 +5,7 @@ import httpx
 from typing import Literal, TypedDict
 from ..config import settings
 
-
 AIMode = Literal["content", "format", "both"]
-
 
 class AIResult(TypedDict):
     changed: bool
@@ -103,6 +101,7 @@ Formatting goals:
 - Improve structure, spacing, bullets, readability
 - Preserve equations, symbols, units
 - Use simple Markdown suitable for Anki
+- Prefer skimmable backs: short lines, bullets, simple labels
 
 IMPORTANT:
 - DO NOT perform language variant normalisation
@@ -113,56 +112,6 @@ IMPORTANT:
 Return ONLY valid JSON with keys:
 changed, flag, feedback, front, back
 """
-
-
-# ✅ Key change: BOTH must actually do formatting work (unless already optimal)
-SYSTEM_PROMPT_BOTH = f"""You are reviewing AND formatting flashcards for spaced-repetition learning.
-
-CRITICAL RULES:
-- DO NOT add new information
-- DO NOT remove information
-- DO NOT expand answers
-- DO NOT invent examples
-- DO NOT change meaning
-
-{INCORRECT_CONTENT_POLICY}
-{LANGUAGE_VARIANT_POLICY}
-
-BOTH MODE REQUIREMENT (MANDATORY):
-- You MUST perform BOTH:
-  1) content review (clarity/correctness checks + variant normalisation)
-  2) formatting/readability improvements (Anki-friendly structure)
-- Even if content is correct, you should still improve formatting if it is not already optimal.
-
-Formatting goals:
-- Make the BACK easy to skim: short lines, bullets/numbering, clear labels
-- Use blank lines between sections when helpful
-- Use simple Markdown that will render well in Anki
-- Preserve equations/symbols/units
-
-Changed logic (IMPORTANT):
-- Set changed=true if you changed ANYTHING in front OR back (content, variant, or formatting).
-- Only set changed=false if:
-  - the content is correct AND
-  - no variant changes are needed AND
-  - formatting is already optimal.
-
-Flags:
-- If only variant changes: "variant_normalised"
-- If formatting changes occurred (with or without content changes): use "both_changed"
-- If nothing changed: "ok"
-
-Return ONLY valid JSON with keys:
-changed, flag, feedback, front, back
-"""
-
-
-def _system_prompt_for(mode: AIMode) -> str:
-    if mode == "format":
-        return SYSTEM_PROMPT_FORMAT
-    if mode == "both":
-        return SYSTEM_PROMPT_BOTH
-    return SYSTEM_PROMPT_CONTENT
 
 
 def _extract_output_text(resp_json: dict, fallback: str) -> str:
@@ -178,12 +127,13 @@ def _extract_output_text(resp_json: dict, fallback: str) -> str:
     return text or fallback
 
 
-async def review_card(front: str, back: str, variant: str = "en-AU", mode: AIMode = "content") -> AIResult:
-    if not settings.OPENAI_API_KEY:
-        return AIResult(changed=False, flag="ai_disabled", feedback="AI key not configured", front=front, back=back)
-
+async def _call_ai(front: str, back: str, variant: str, mode: AIMode) -> AIResult:
+    """
+    Low-level AI call. mode is only 'content' or 'format' here.
+    """
     norm_variant = _norm_variant(variant)
-    system_prompt = _system_prompt_for(mode)
+
+    system_prompt = SYSTEM_PROMPT_CONTENT if mode == "content" else SYSTEM_PROMPT_FORMAT
 
     url = "https://api.openai.com/v1/responses"
     headers = {"Authorization": f"Bearer {settings.OPENAI_API_KEY}", "Content-Type": "application/json"}
@@ -216,57 +166,127 @@ async def review_card(front: str, back: str, variant: str = "en-AU", mode: AIMod
 
     try:
         obj = json.loads(text)
-
-        flag_raw = str(obj.get("flag", "ok")).strip()
-        flag_lower = flag_raw.lower()
-
-        # ✅ HARD SAFETY: incorrect => do not modify content
-        if flag_lower == "incorrect":
-            return AIResult(
-                changed=False,
-                flag="incorrect",
-                feedback=str(obj.get("feedback", "")).strip(),
-                front=front,
-                back=back,
-            )
-
-        out_front = str(obj.get("front", front))
-        out_back = str(obj.get("back", back))
-        out_changed = bool(obj.get("changed", False))
-        out_feedback = str(obj.get("feedback", ""))
-        out_flag = flag_raw or "ok"
-
-        # ✅ Server-side truth check:
-        # If AI returned different text, we MUST treat it as changed even if model said changed=false.
-        actually_changed = (out_front != (front or "")) or (out_back != (back or ""))
-
-        if actually_changed and not out_changed:
-            out_changed = True
-            # If mode is both/format, ensure a sensible flag so UI messaging is consistent
-            if mode == "format":
-                out_flag = "format_changed"
-                if not out_feedback.strip():
-                    out_feedback = "Formatting changed for clarity."
-            elif mode == "both":
-                # preserve variant_normalised if they only did variant; otherwise both_changed
-                if out_flag.lower() not in ("variant_normalised",):
-                    out_flag = "both_changed"
-                if not out_feedback.strip():
-                    out_feedback = "Content and/or formatting changed for clarity."
-
-        # If they claim changed=true but returned identical text, normalise to unchanged
-        if out_changed and not actually_changed:
-            out_changed = False
-            if out_flag.lower() in ("format_changed", "both_changed"):
-                out_flag = "ok"
-
         return AIResult(
-            changed=out_changed,
-            flag=str(out_flag),
-            feedback=str(out_feedback),
-            front=out_front,
-            back=out_back,
+            changed=bool(obj.get("changed", False)),
+            flag=str(obj.get("flag", "ok")).strip() or "ok",
+            feedback=str(obj.get("feedback", "")),
+            front=str(obj.get("front", front)),
+            back=str(obj.get("back", back)),
         )
-
     except Exception:
         return AIResult(changed=False, flag="parse_error", feedback="AI returned invalid JSON", front=front, back=back)
+
+
+def _actually_changed(a_front: str, a_back: str, b_front: str, b_back: str) -> bool:
+    return (a_front != (b_front or "")) or (a_back != (b_back or ""))
+
+
+async def review_card(front: str, back: str, variant: str = "en-AU", mode: AIMode = "content") -> AIResult:
+    if not settings.OPENAI_API_KEY:
+        return AIResult(changed=False, flag="ai_disabled", feedback="AI key not configured", front=front, back=back)
+
+    # -------------------------
+    # CONTENT ONLY
+    # -------------------------
+    if mode == "content":
+        res = await _call_ai(front, back, variant, "content")
+
+        # If incorrect: never change text
+        if res["flag"].lower() == "incorrect":
+            return AIResult(changed=False, flag="incorrect", feedback=res["feedback"].strip(), front=front, back=back)
+
+        # truth-check "changed"
+        if _actually_changed(res["front"], res["back"], front, back):
+            if not res["changed"]:
+                # force changed true if text differs
+                res["changed"] = True
+                if not res["feedback"].strip():
+                    res["feedback"] = "Content/spelling adjusted for clarity."
+        else:
+            res["changed"] = False
+            if res["flag"].lower() not in ("incorrect",):
+                res["flag"] = "ok"
+
+        return res
+
+    # -------------------------
+    # FORMAT ONLY
+    # -------------------------
+    if mode == "format":
+        res = await _call_ai(front, back, variant, "format")
+
+        # truth-check "changed"
+        if _actually_changed(res["front"], res["back"], front, back):
+            if not res["changed"]:
+                res["changed"] = True
+            if res["flag"].lower() not in ("format_changed",):
+                res["flag"] = "format_changed"
+            if not res["feedback"].strip():
+                res["feedback"] = "Formatting changed for clarity."
+        else:
+            res["changed"] = False
+            res["flag"] = "format_ok"
+            if not res["feedback"].strip():
+                res["feedback"] = ""
+
+        return res
+
+    # -------------------------
+    # BOTH = 2-pass pipeline:
+    #   1) content (incl incorrect + variant)
+    #   2) format (on output of content)
+    # -------------------------
+    # Pass 1: content
+    content_res = await _call_ai(front, back, variant, "content")
+
+    # If incorrect: STOP, do not format, do not change
+    if content_res["flag"].lower() == "incorrect":
+        return AIResult(changed=False, flag="incorrect", feedback=content_res["feedback"].strip(), front=front, back=back)
+
+    # Determine what content stage did
+    content_changed = _actually_changed(content_res["front"], content_res["back"], front, back)
+
+    # Use content output as input to formatting stage
+    base_front = content_res["front"]
+    base_back = content_res["back"]
+
+    # Pass 2: format
+    format_res = await _call_ai(base_front, base_back, variant, "format")
+    format_changed = _actually_changed(format_res["front"], format_res["back"], base_front, base_back)
+
+    final_front = format_res["front"]
+    final_back = format_res["back"]
+
+    any_changed = content_changed or format_changed
+
+    # Decide flag + feedback
+    # (We also preserve variant_normalised if that's all that happened.)
+    cflag = (content_res["flag"] or "ok").strip()
+    cflag_lower = cflag.lower()
+
+    if not any_changed:
+        return AIResult(changed=False, flag="ok", feedback="", front=front, back=back)
+
+    # If only content changed
+    if content_changed and not format_changed:
+        # preserve variant_normalised if content stage only did variant
+        out_flag = "variant_normalised" if cflag_lower == "variant_normalised" else "content_changed"
+        out_feedback = (content_res["feedback"] or "").strip() or "Content/spelling adjusted for clarity."
+        return AIResult(changed=True, flag=out_flag, feedback=out_feedback, front=base_front, back=base_back)
+
+    # If only format changed
+    if format_changed and not content_changed:
+        out_feedback = (format_res["feedback"] or "").strip() or "Formatting changed for clarity."
+        return AIResult(changed=True, flag="format_changed", feedback=out_feedback, front=final_front, back=final_back)
+
+    # Both changed
+    out_feedback_parts = []
+    cf = (content_res["feedback"] or "").strip()
+    ff = (format_res["feedback"] or "").strip()
+    if cf:
+        out_feedback_parts.append(cf)
+    if ff and ff not in out_feedback_parts:
+        out_feedback_parts.append(ff)
+    out_feedback = " • ".join(out_feedback_parts) if out_feedback_parts else "Content and formatting changed for clarity."
+
+    return AIResult(changed=True, flag="both_changed", feedback=out_feedback, front=final_front, back=final_back)
