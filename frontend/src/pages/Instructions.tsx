@@ -8,7 +8,15 @@ type Step = {
   subtitle?: string;
   bullets: string[];
   mediaType: MediaType;
-  mediaHint: string; // what you plan to place here later
+
+  // Fallback text if you haven't added media yet
+  mediaHint: string;
+
+  // ✅ Add these so you can link real media later
+  mediaSrc?: string; // e.g. "/media/workflow-upload.png" or "https://..."
+  mediaAlt?: string; // for images
+  mediaPoster?: string; // for videos (optional)
+
   cta?: { label: string; to: string };
 };
 
@@ -24,6 +32,8 @@ const STEPS: Step[] = [
     ],
     mediaType: "video",
     mediaHint: "Placeholder: 20–40s tour clip: Home → Instructions → Workflow → Account",
+    // mediaSrc: "/media/tour.mp4",
+    // mediaPoster: "/media/tour-poster.jpg",
     cta: { label: "Open Workflow", to: "/workflow" },
   },
   {
@@ -37,6 +47,8 @@ const STEPS: Step[] = [
     ],
     mediaType: "image",
     mediaHint: "Placeholder: screenshot of Account page showing free vs paid state (plan badge + actions)",
+    // mediaSrc: "/media/account-plans.png",
+    // mediaAlt: "Account page showing plan badge and actions",
     cta: { label: "Go to Account", to: "/account" },
   },
   {
@@ -52,6 +64,8 @@ const STEPS: Step[] = [
     ],
     mediaType: "image",
     mediaHint: "Placeholder: screenshot of a Notion page showing correct Q&A + MCQ blocks",
+    // mediaSrc: "/media/notion-formatting.png",
+    // mediaAlt: "Notion page showing correct Question/MCQ blocks",
   },
   {
     title: "4) Export from Notion + upload into Workflow",
@@ -65,6 +79,8 @@ const STEPS: Step[] = [
     ],
     mediaType: "video",
     mediaHint: "Placeholder: screen recording: Notion export settings → drag/drop into Workflow",
+    // mediaSrc: "/media/notion-export-to-upload.mp4",
+    // mediaPoster: "/media/notion-export-to-upload-poster.jpg",
     cta: { label: "Open Workflow", to: "/workflow" },
   },
   {
@@ -78,6 +94,8 @@ const STEPS: Step[] = [
     ],
     mediaType: "image",
     mediaHint: "Placeholder: screenshot of Workflow after Parse (counts + project badge)",
+    // mediaSrc: "/media/workflow-after-parse.png",
+    // mediaAlt: "Workflow page showing counts and project badge after parsing",
   },
   {
     title: "6) Review your cards: preview + edit + delete",
@@ -91,6 +109,8 @@ const STEPS: Step[] = [
     ],
     mediaType: "video",
     mediaHint: "Placeholder: clip showing: open cards → Edit → Close → Delete",
+    // mediaSrc: "/media/workflow-edit-delete.mp4",
+    // mediaPoster: "/media/workflow-edit-delete-poster.jpg",
   },
   {
     title: "7) Export CSV (for Anki import)",
@@ -103,6 +123,8 @@ const STEPS: Step[] = [
     ],
     mediaType: "image",
     mediaHint: "Placeholder: screenshot of Anki import mapping screen (Front/Back fields)",
+    // mediaSrc: "/media/anki-import-mapping.png",
+    // mediaAlt: "Anki import mapping screen showing Front and Back fields",
   },
   {
     title: "8) AI Review (Paid): overview",
@@ -115,6 +137,8 @@ const STEPS: Step[] = [
     ],
     mediaType: "image",
     mediaHint: "Placeholder: screenshot of Workflow AI buttons (Review all / Format all / Both + Apply)",
+    // mediaSrc: "/media/workflow-ai-buttons.png",
+    // mediaAlt: "Workflow AI buttons for reviewing and applying AI changes",
   },
   {
     title: "9) AI Review results: how to read them",
@@ -128,6 +152,8 @@ const STEPS: Step[] = [
     ],
     mediaType: "video",
     mediaHint: "Placeholder: clip: run AI → open AI result panel → expand suggested front/back → see highlights",
+    // mediaSrc: "/media/ai-results-diff.mp4",
+    // mediaPoster: "/media/ai-results-diff-poster.jpg",
   },
   {
     title: "10) Apply AI (Paid): write suggestions onto the cards",
@@ -140,6 +166,8 @@ const STEPS: Step[] = [
     ],
     mediaType: "image",
     mediaHint: "Placeholder: screenshot of a card after Apply (front/back updated + AI panel visible)",
+    // mediaSrc: "/media/card-after-apply.png",
+    // mediaAlt: "Card preview showing updated content after Apply AI",
   },
   {
     title: "11) Recommended workflow for best results",
@@ -153,6 +181,8 @@ const STEPS: Step[] = [
     ],
     mediaType: "video",
     mediaHint: "Placeholder: optional “best practices” walkthrough video (60–120s)",
+    // mediaSrc: "/media/best-practices.mp4",
+    // mediaPoster: "/media/best-practices-poster.jpg",
     cta: { label: "Back to Workflow", to: "/workflow" },
   },
 ];
@@ -300,21 +330,41 @@ export default function Instructions() {
                 </div>
               </div>
 
-              {/* Media placeholder */}
+              {/* Media block (shows real media if mediaSrc exists, otherwise placeholder) */}
               <div className="rounded-2xl border border-base-300 bg-base-200/40 overflow-hidden">
                 <div className="p-4 md:p-5 flex items-center justify-between gap-3">
-                  <div className="font-semibold">
-                    {step.mediaType === "video" ? "Video placeholder" : "Image placeholder"}
-                  </div>
+                  <div className="font-semibold">{step.mediaType === "video" ? "Video" : "Image"}</div>
                   <div className="badge badge-ghost">{step.mediaType.toUpperCase()}</div>
                 </div>
 
                 <div className="px-4 md:px-5 pb-5">
-                  <div className="aspect-video rounded-xl bg-base-100 border border-base-300 flex items-center justify-center">
-                    <div className="text-center space-y-2 px-6">
-                      <div className="text-sm opacity-70">{step.mediaHint}</div>
-                      <div className="text-xs opacity-50">Later: replace this block with an &lt;img&gt; or &lt;video&gt; component.</div>
-                    </div>
+                  <div className="aspect-video rounded-xl bg-base-100 border border-base-300 overflow-hidden flex items-center justify-center">
+                    {step.mediaSrc ? (
+                      step.mediaType === "image" ? (
+                        <img
+                          src={step.mediaSrc}
+                          alt={step.mediaAlt || step.title}
+                          className="w-full h-full object-cover"
+                          loading="lazy"
+                        />
+                      ) : (
+                        <video
+                          src={step.mediaSrc}
+                          poster={step.mediaPoster}
+                          controls
+                          playsInline
+                          className="w-full h-full object-cover"
+                        />
+                      )
+                    ) : (
+                      <div className="text-center space-y-2 px-6">
+                        <div className="text-sm opacity-70">{step.mediaHint}</div>
+                        <div className="text-xs opacity-50">
+                          Add <span className="font-semibold">mediaSrc</span> to this step to show your image/video here (e.g.{" "}
+                          <span className="font-semibold">/media/your-file.png</span>).
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
