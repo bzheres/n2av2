@@ -5,24 +5,20 @@ type Step = { title: string; body: string };
 
 const STEPS: Step[] = [
   {
-    title: "Export from Notion",
-    body: "Export your page as Markdown (include sub-pages). Keep filenames intact.",
+    title: "Upload",
+    body: "Drop your Notion Markdown export into Workflow.",
   },
   {
-    title: "Upload to N2A",
-    body: "Drop the export into Workflow. N2A detects card blocks automatically.",
+    title: "Parse",
+    body: "N2A detects Q&A and MCQ blocks and turns them into cards.",
   },
   {
-    title: "Parse & Generate",
-    body: "Cards are built from your structured headings + Question/MCQ blocks.",
+    title: "Edit",
+    body: "Preview your cards and tweak anything before export.",
   },
   {
-    title: "Review & Edit",
-    body: "Fix prompts/answers and quickly re-export until everything looks clean.",
-  },
-  {
-    title: "Export to Anki",
-    body: "Download CSV, import into Anki, and start spaced repetition immediately.",
+    title: "Export",
+    body: "Download a CSV ready to import into Anki.",
   },
 ];
 
@@ -58,26 +54,31 @@ function BadgeNumber({ n, active }: { n: number; active: boolean }) {
 export default function Home() {
   const { refs, active, setActive } = useActiveOnScroll(STEPS.length);
 
-  // These examples are intentionally formatted exactly like the Workflow "Front/Back (preview)" blocks.
-  const qaFront = "What does the contrast improvement factor (CIF) represent?";
+  // Examples: generic + intentionally styled exactly like Workflow preview blocks.
+  const qaFront = "What is photosynthesis?";
   const qaBack = [
     "**Definition**",
-    "CIF = (contrast with grid) / (contrast without grid)",
+    "Process where plants use sunlight to make energy (glucose).",
     "",
-    "**Typical values**",
-    "- ~2 for general radiography",
-    "- ~1.5 for mammography",
+    "**Inputs**",
+    "- Carbon dioxide (CO₂)",
+    "- Water (H₂O)",
+    "- Sunlight",
+    "",
+    "**Outputs**",
+    "- Glucose",
+    "- Oxygen (O₂)",
   ].join("\n");
 
   const mcqFront = [
-    "Which statement about anti-scatter grids is correct?",
-    "1) Grid ratio is defined as strip height / interspace width",
-    "2) Higher grid ratio generally reduces scatter more effectively",
-    "3) Grid frequency is the number of lead strips per cm",
-    "4) All of the above",
+    "Which planet is known as the Red Planet?",
+    "1) Earth",
+    "2) Mars",
+    "3) Jupiter",
+    "4) Venus",
   ].join("\n");
 
-  const mcqBack = "4) All of the above";
+  const mcqBack = "2) Mars";
 
   return (
     <div className="-mx-4 md:-mx-6 lg:-mx-8">
@@ -115,7 +116,7 @@ export default function Home() {
       </section>
 
       {/* =========================
-          FLOW (vertical on all sizes)
+          FLOW (free-tier overview)
           Scroll-activated highlight + hover polish
          ========================= */}
       <section className="px-4 md:px-6 lg:px-8 py-12 md:py-14 bg-base-200">
@@ -124,7 +125,6 @@ export default function Home() {
             <h2 className="text-2xl md:text-3xl font-bold">
               The <span className="text-primary">N2A</span> flow
             </h2>
-            <p className="opacity-75 mt-2">Scroll — steps highlight automatically. (Also looks great on hover.)</p>
           </div>
 
           <div className="space-y-4">
@@ -153,7 +153,12 @@ export default function Home() {
                       <div className="flex items-center justify-between gap-3">
                         <div className="font-semibold text-lg">{s.title}</div>
 
-                        <div className={["h-2 w-2 rounded-full transition-all", isActive ? "bg-primary" : "bg-base-300 group-hover:bg-primary/60"].join(" ")} />
+                        <div
+                          className={[
+                            "h-2 w-2 rounded-full transition-all",
+                            isActive ? "bg-primary" : "bg-base-300 group-hover:bg-primary/60",
+                          ].join(" ")}
+                        />
                       </div>
 
                       <div className="text-sm md:text-base opacity-80 mt-1">{s.body}</div>
@@ -202,10 +207,6 @@ export default function Home() {
                 <pre className="whitespace-pre-wrap text-sm leading-relaxed bg-base-100/40 border border-base-300 rounded-xl p-3">
                   {qaBack}
                 </pre>
-
-                <div className="text-xs opacity-60">
-                  Tip: Keep answers as short lines / bullets — it exports cleaner and reads better in Anki.
-                </div>
               </div>
             </div>
 
@@ -226,8 +227,6 @@ export default function Home() {
                 <pre className="whitespace-pre-wrap text-sm leading-relaxed bg-base-100/40 border border-base-300 rounded-xl p-3">
                   {mcqBack}
                 </pre>
-
-                <div className="text-xs opacity-60">MCQ option style (1), A), etc. is controlled in Workflow and affects export.</div>
               </div>
             </div>
           </div>
