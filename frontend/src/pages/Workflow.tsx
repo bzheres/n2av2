@@ -28,6 +28,22 @@ type Card = {
   ai_suggest_back?: string | null;
 };
 
+type ParserIssueKind =
+  | "qa_missing_answer"
+  | "qa_empty_question"
+  | "mcq_missing_options"
+  | "mcq_missing_answer_tag"
+  | "mcq_answer_not_indented"
+  | "mcq_empty_stem";
+
+type ParserDiagnostic = {
+  kind: ParserIssueKind;
+  line: number; // 1-based
+  message: string;
+  hint?: string;
+  snippet?: string;
+};
+
 /* ------------------------------------------------------------------ */
 /* Diff helper: line-based "good enough" visual diff for flashcards.   */
 /* - Added lines: primary-tinted highlight                             */
@@ -105,59 +121,151 @@ function DiffBlock({ original, suggested }: { original: string; suggested: strin
   );
 }
 
-function parseMarkdown(md: string): Omit<Card, "id">[] {
+/* ------------------------------------------------------------------ */
+/* Parser (frontend mirror) + Diagnostics                              */
+/* ------------------------------------------------------------------ */
+
+function parseMarkdownWithDiagnostics(md: string): { cards: Omit<Card, "id">[]; diagnostics: ParserDiagnostic[] } {
   const lines = md.split(/\r?\n/);
-  const norm = (l: string) => {
+
+  const normTag = (l: string): "question" | "mcq" | null => {
     const s = l.trim().toLowerCase();
-    if (s.startsWith("question:") || s.startsWith("quesition:") || s.startsWith("quesiton:")) return "question";
-    if (s.startsWith("mcq:") || s.startsWith("mcu:")) return "mcq";
+
+    // Q variants
+    if (
+      s.startsWith("question:") ||
+      s.startsWith("quesition:") ||
+      s.startsWith("quesiton:") ||
+      s.startsWith("quesion:") ||
+      s.startsWith("qestion:") ||
+      s.startsWith("queston:") ||
+      s.startsWith("qustion:") ||
+      s.startsWith("q:")
+    )
+      return "question";
+
+    // MCQ variants
+    if (s.startsWith("mcq:") || s.startsWith("mcu:") || s.startsWith("mcv:") || s.startsWith("mvq:") || s.startsWith("mqc:") || s.startsWith("mc:"))
+      return "mcq";
+
     return null;
   };
 
+  const isAnswerTag = (l: string) => {
+    const s = l.trim().toLowerCase();
+    return (
+      s.startsWith("answer:") ||
+      s.startsWith("ans:") ||
+      s.startsWith("anser:") ||
+      s.startsWith("anwser:") ||
+      s.startsWith("aswer:") ||
+      s.startsWith("anwer:") ||
+      s.startsWith("answer :") ||
+      s.startsWith("ans :")
+    );
+  };
+
+  const isIndentedOrBulleted = (l: string) => /^(\t|\s{4}|-\s|\*\s)/.test(l);
+
+  const stripOnePrefix = (l: string) => l.replace(/^(\t|\s{4}|-\s|\*\s)/, "").trimEnd();
+
   const out: Omit<Card, "id">[] = [];
+  const diagnostics: ParserDiagnostic[] = [];
+
   let i = 0;
 
   while (i < lines.length) {
-    const tag = norm(lines[i]);
+    const tag = normTag(lines[i]);
     if (!tag) {
       i++;
       continue;
     }
 
+    // ---------------- Q&A ----------------
     if (tag === "question") {
-      const q = lines[i].split(":", 2)[1].trim();
+      const lineNo = i + 1;
+      const q = (lines[i].split(":", 2)[1] || "").trim();
+
+      if (!q) {
+        diagnostics.push({
+          kind: "qa_empty_question",
+          line: lineNo,
+          message: "Q&A tag found but the question text is empty.",
+          hint: "Write the question on the SAME line after 'Question:'.",
+          snippet: lines[i],
+        });
+      }
+
       i++;
       const ans: string[] = [];
+      let sawAnyNonBlank = false;
+
       while (i < lines.length) {
-        if (norm(lines[i])) break;
+        if (normTag(lines[i])) break;
         const nxt = lines[i];
 
-        if (/^(\s{4}|\t|-\s|\*\s)/.test(nxt)) {
-          ans.push(nxt.replace(/^(\s{4}|\t|-\s|\*\s)/, "").trimEnd());
-          i++;
-          continue;
-        }
         if (nxt.trim() === "") {
           if (ans.length) ans.push("");
           i++;
           continue;
         }
+
+        sawAnyNonBlank = true;
+
+        if (isIndentedOrBulleted(nxt)) {
+          ans.push(stripOnePrefix(nxt));
+          i++;
+          continue;
+        }
+
+        // Stop once answer started; otherwise keep scanning until we hit real text (then it's a failure)
         if (ans.length) break;
+
+        // This is non-indented text immediately after Question: -> will not be captured
+        // We keep scanning, but if we never capture anything, we'll show a diagnostic.
         i++;
       }
-      out.push({ card_type: "qa", front: q, back: ans.join("\n").trim() });
+
+      const back = ans.join("\n").trim();
+      out.push({ card_type: "qa", front: q, back });
+
+      if (!back && sawAnyNonBlank) {
+        diagnostics.push({
+          kind: "qa_missing_answer",
+          line: lineNo,
+          message: "Q&A parsed but no answer lines were captured.",
+          hint: "Answers must be indented (TAB or 4 spaces) or use '- ' / '* ' bullets on the answer lines.",
+          snippet: lines[lineNo - 1],
+        });
+      }
+
       continue;
     }
 
+    // ---------------- MCQ ----------------
     if (tag === "mcq") {
-      const stem = lines[i].split(":", 2)[1].trim();
+      const lineNo = i + 1;
+      const stem = (lines[i].split(":", 2)[1] || "").trim();
+
+      if (!stem) {
+        diagnostics.push({
+          kind: "mcq_empty_stem",
+          line: lineNo,
+          message: "MCQ tag found but the stem (question text) is empty.",
+          hint: "Write the MCQ question on the SAME line after 'MCQ:'.",
+          snippet: lines[i],
+        });
+      }
+
       i++;
       const opts: string[] = [];
       const ansLines: string[] = [];
       let inAns = false;
+      let sawAnswerTag = false;
+      let answerHadNonIndentedLine = false;
 
       while (i < lines.length) {
-        if (norm(lines[i])) break;
+        if (normTag(lines[i])) break;
         const nxt = lines[i];
 
         if (nxt.trim() === "") {
@@ -165,24 +273,34 @@ function parseMarkdown(md: string): Omit<Card, "id">[] {
           continue;
         }
 
-        if (nxt.trim().toLowerCase().startsWith("answer:")) {
+        if (isAnswerTag(nxt)) {
+          sawAnswerTag = true;
           inAns = true;
+
+          // allow "Answer: B) ..."
+          const after = nxt.split(":", 2)[1] || "";
+          if (after.trim()) ansLines.push(after.trim());
+
           i++;
           continue;
         }
 
         if (inAns) {
-          // ✅ allow multi-line answers: any indented line continues the back
-          if (/^(\s{4}|\t)/.test(nxt)) {
-            ansLines.push(nxt.replace(/^(\s{4}|\t)/, "").trimEnd());
+          // multi-line answer ONLY if indented/bulleted
+          if (isIndentedOrBulleted(nxt)) {
+            ansLines.push(stripOnePrefix(nxt));
             i++;
             continue;
           }
+
+          // Non-indented answer line will be ignored (by design), so we log it.
+          answerHadNonIndentedLine = true;
           break;
         }
 
-        if (/^(\s{4}|\t|-\s|\*\s)/.test(nxt)) {
-          opts.push(nxt.replace(/^(\s{4}|\t|-\s|\*\s)/, "").trimEnd());
+        // options
+        if (isIndentedOrBulleted(nxt)) {
+          opts.push(stripOnePrefix(nxt));
           i++;
           continue;
         }
@@ -195,11 +313,40 @@ function parseMarkdown(md: string): Omit<Card, "id">[] {
         front: opts.length ? `${stem}\n${opts.join("\n")}` : stem,
         back: ansLines.join("\n").trim(),
       });
+
+      if (!opts.length) {
+        diagnostics.push({
+          kind: "mcq_missing_options",
+          line: lineNo,
+          message: "MCQ parsed but no options were detected.",
+          hint: "Options must be indented (TAB or 4 spaces) or use '- ' / '* ' bullets, one option per line.",
+          snippet: lines[lineNo - 1],
+        });
+      }
+
+      if (!sawAnswerTag) {
+        diagnostics.push({
+          kind: "mcq_missing_answer_tag",
+          line: lineNo,
+          message: "MCQ parsed but no Answer tag was found.",
+          hint: "Add an 'Answer:' line after the options. Put the answer on the same line (Answer: B) …) OR on indented lines below it.",
+          snippet: lines[lineNo - 1],
+        });
+      } else if (!ansLines.length) {
+        diagnostics.push({
+          kind: "mcq_answer_not_indented",
+          line: lineNo,
+          message: "MCQ found an Answer tag, but no answer lines were captured.",
+          hint: "After 'Answer:' the answer lines must be indented (TAB or 4 spaces) or bulleted.",
+          snippet: answerHadNonIndentedLine ? "Answer lines were not indented." : lines[lineNo - 1],
+        });
+      }
+
       continue;
     }
   }
 
-  return out;
+  return { cards: out, diagnostics };
 }
 
 function uid() {
@@ -239,8 +386,6 @@ function formatMcqOptions(front: string, style: McqStyle): string {
     }
   };
 
-  // ✅ Fix: only strip a leading "label" if it's the *entire* option label at start,
-  // so we don't accidentally delete content.
   const rebuilt = opts.map((o, i) => {
     const cleaned = o.replace(/^\s*(?:([A-Za-z]|\d+)[\)\.])\s+/, "").trim();
     return `${labelFor(i)} ${cleaned}`;
@@ -249,12 +394,6 @@ function formatMcqOptions(front: string, style: McqStyle): string {
   return [stem, ...rebuilt].join("\n");
 }
 
-/**
- * ✅ Fixes the “18)” / missing-first-letter issue:
- * - We DO NOT treat arbitrary strings like "Reason:" as an option label.
- * - We only normalize the FIRST LINE if it clearly begins with A)/1)/A./1. etc.
- * - We preserve additional lines (multi-line MCQ answers) verbatim under it.
- */
 function formatMcqAnswer(back: string, style: McqStyle): string {
   const raw = (back || "").trim();
   if (!raw) return raw;
@@ -263,9 +402,6 @@ function formatMcqAnswer(back: string, style: McqStyle): string {
   const first = (lines[0] || "").trim();
   const rest = lines.slice(1);
 
-  // Only accept explicit option labels like:
-  //   "B) ..." / "2) ..." / "B." / "2." / "B)" alone / "2)" alone
-  // Optional "Answer:" prefix is okay.
   const m = first.match(/^(?:answer:\s*)?([A-Za-z]|\d+)\s*([\)\.])(?:\s+(.*))?$/i);
   if (!m) return raw;
 
@@ -273,11 +409,8 @@ function formatMcqAnswer(back: string, style: McqStyle): string {
   const trailing = (m[3] || "").trim();
 
   const isNum = /^\d+$/.test(token);
-  const idx = isNum
-    ? Math.max(parseInt(token, 10) - 1, 0)
-    : token.toUpperCase().charCodeAt(0) - "A".charCodeAt(0);
+  const idx = isNum ? Math.max(parseInt(token, 10) - 1, 0) : token.toUpperCase().charCodeAt(0) - "A".charCodeAt(0);
 
-  // Guard nonsense
   if (idx < 0 || idx > 25) return raw;
 
   const n = idx + 1;
@@ -342,6 +475,10 @@ export default function Workflow() {
   const [englishVariant, setEnglishVariant] = React.useState<EnglishVariant>("uk_au");
   const [filterMode, setFilterMode] = React.useState<FilterMode>("all");
 
+  // ✅ Diagnostics
+  const [diagnostics, setDiagnostics] = React.useState<ParserDiagnostic[]>([]);
+  const [showDiagnostics, setShowDiagnostics] = React.useState(true);
+
   // Edit toggle per-card
   const [editingIds, setEditingIds] = React.useState<Set<string>>(() => new Set());
 
@@ -354,7 +491,7 @@ export default function Workflow() {
   // Per-card spinner
   const [aiLoadingIds, setAiLoadingIds] = React.useState<Set<string>>(() => new Set());
 
-  // Track which mode was last run per card (so we can decide whether to show diff)
+  // Track which mode was last run per card
   const [aiLastModeById, setAiLastModeById] = React.useState<Record<string, AIMode>>({});
 
   // Batch progress
@@ -446,6 +583,7 @@ export default function Workflow() {
     setFilename("");
     setCards([]);
     setStatus(null);
+    setDiagnostics([]);
     setEditingIds(new Set());
     setProjectId(null);
     setAiReviewedIds(new Set());
@@ -514,7 +652,8 @@ export default function Workflow() {
     setBusy(true);
 
     try {
-      const parsedLocal = parseMarkdown(raw);
+      const { cards: parsedLocal, diagnostics: diags } = parseMarkdownWithDiagnostics(raw);
+      setDiagnostics(diags);
 
       // Guest mode: local-only
       if (!user) {
@@ -525,6 +664,7 @@ export default function Workflow() {
         setAiReviewedIds(new Set());
         setAiLoadingIds(new Set());
         setAiLastModeById({});
+        setBatch({ running: false, total: 0, done: 0, errors: 0, mode: null, apply: false });
         setStatus(`Parsed ${localCards.length} card${localCards.length === 1 ? "" : "s"} (guest mode).`);
         return;
       }
@@ -607,17 +747,14 @@ export default function Workflow() {
       return;
     }
 
-    // mark reviewed for UI
     setAiReviewedIds((prev) => {
       const next = new Set(prev);
       next.add(id);
       return next;
     });
 
-    // remember which mode ran (for diff vs summary behavior)
     setAiLastModeById((prev) => ({ ...prev, [id]: mode }));
 
-    // per-card spinner
     setAiLoadingIds((prev) => {
       const next = new Set(prev);
       next.add(id);
@@ -663,7 +800,6 @@ export default function Workflow() {
             ai_suggest_back: res.result.back ?? null,
           };
 
-          // apply is still respected client-side, but backend will also guard it for incorrect
           if (apply && changed) {
             next.front = res.result.front;
             next.back = res.result.back;
@@ -744,7 +880,6 @@ export default function Workflow() {
 
   const progressPct = batch.total ? Math.round((batch.done / batch.total) * 100) : 0;
 
-  // ✅ Full-page overlay ONLY for AI Review ALL
   if (batch.running) {
     return (
       <div className="fixed inset-0 z-[1000] bg-base-100/90 backdrop-blur flex items-center justify-center px-6">
@@ -811,6 +946,7 @@ export default function Workflow() {
                       setFilename(n);
 
                       setCards([]);
+                      setDiagnostics([]);
                       setEditingIds(new Set());
                       setStatus(null);
                       setProjectId(null);
@@ -825,7 +961,6 @@ export default function Workflow() {
                     File: <span className="font-semibold">{filename || "None"}</span>
                   </div>
 
-                  {/* ✅ Smart hint (Option A): stays in the Upload box, under the drop section */}
                   <div className="rounded-xl border border-base-300 bg-base-200/40 p-3">
                     <div className="text-sm font-semibold">Need a template?</div>
                     <div className="text-xs opacity-70 mt-1">
@@ -879,6 +1014,42 @@ export default function Workflow() {
                       </div>
                     </div>
                   </div>
+
+                  {/* ✅ Parser diagnostics panel */}
+                  {diagnostics.length > 0 && (
+                    <div className="rounded-2xl border border-base-300 bg-base-200/40 p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="text-sm font-semibold">Parser diagnostics</div>
+                          <div className="text-xs opacity-70">
+                            Some blocks were detected but didn’t fully parse. Fix these in Notion/Markdown and re-Parse.
+                          </div>
+                        </div>
+
+                        <button className="btn btn-xs btn-ghost" onClick={() => setShowDiagnostics((v) => !v)}>
+                          {showDiagnostics ? "Hide" : "Show"}
+                        </button>
+                      </div>
+
+                      {showDiagnostics && (
+                        <div className="mt-3 space-y-2">
+                          {diagnostics.map((d, idx) => (
+                            <div key={idx} className="rounded-xl border border-base-300 bg-base-100/50 p-3">
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="text-sm font-semibold">
+                                  Line {d.line}: <span className="opacity-80">{d.message}</span>
+                                </div>
+                                <span className="badge badge-sm badge-outline">{d.kind}</span>
+                              </div>
+
+                              {d.snippet ? <div className="text-xs opacity-70 mt-1 whitespace-pre-wrap">Snippet: {d.snippet}</div> : null}
+                              {d.hint ? <div className="text-xs opacity-80 mt-2">Tip: {d.hint}</div> : null}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   {/* Controls row */}
                   <div className="grid md:grid-cols-3 gap-3">
@@ -1017,10 +1188,7 @@ export default function Workflow() {
                 const lastMode = aiLastModeById[c.id];
                 const formatContext = lastMode === "format" || isFormatFlag(flag);
 
-                // Only show line-by-line diff if this is content/both review (or flagged as content-ish) AND changed
                 const showDiff = changed && !incorrect && !formatContext;
-
-                // For format-only: show suggested text, but not diff
                 const showPlainSuggested = changed && !incorrect && formatContext;
 
                 const disableApplyBecauseIncorrect = incorrect;

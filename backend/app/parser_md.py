@@ -9,13 +9,40 @@ class ParsedCard:
     back: str
     raw: str | None = None
 
+# -------------------------
+# Tag normalization helpers
+# -------------------------
+
 def _norm_tag(line: str) -> str | None:
+    """
+    Accept common typos / variants for Question and MCQ.
+    Add more accepted spellings here.
+    """
     s = line.strip().lower()
-    if s.startswith(("question:", "quesition:", "quesiton:")):
+
+    # Q&A tag variants
+    if s.startswith((
+        "question:", "quesition:", "quesiton:", "quesion:", "qestion:", "queston:", "qustion:", "q:",
+    )):
         return "question"
-    if s.startswith(("mcq:", "mcu:")):
+
+    # MCQ tag variants
+    if s.startswith((
+        "mcq:", "mcu:", "mcv:", "mvq:", "mqc:", "mc:",  # include mvq per your request
+    )):
         return "mcq"
+
     return None
+
+def _is_answer_tag(line: str) -> bool:
+    """
+    Accept common typos / variants for Answer tag.
+    Add more accepted spellings here.
+    """
+    s = line.strip().lower()
+    return s.startswith((
+        "answer:", "ans:", "anser:", "anwser:", "aswer:", "anwer:", "answer :", "ans :"
+    ))
 
 def _is_indented_or_bulleted(line: str) -> bool:
     # treat tabs OR >=4 spaces OR "- " OR "* " as content lines
@@ -55,6 +82,7 @@ def parse_markdown(md_text: str) -> List[ParsedCard]:
         # Q&A
         # -------------------------
         if tag == "question":
+            # supports "q:" shorthand too
             q = line.split(":", 1)[1].strip()
             i += 1
             ans_lines: List[str] = []
@@ -111,7 +139,7 @@ def parse_markdown(md_text: str) -> List[ParsedCard]:
                     continue
 
                 # Answer: can be on its own line OR "Answer: B) ..."
-                if nxt.strip().lower().startswith("answer:"):
+                if _is_answer_tag(nxt):
                     in_answer = True
                     after = nxt.split(":", 1)[1].strip()
                     if after:
@@ -121,8 +149,8 @@ def parse_markdown(md_text: str) -> List[ParsedCard]:
                     continue
 
                 if in_answer:
-                    # Accept multiple answer lines if indented/bulleted
-                    if _is_indented_or_bulleted(nxt) or nxt.startswith(("\t", "    ")):
+                    # ✅ multiple answer lines only if indented/bulleted
+                    if _is_indented_or_bulleted(nxt):
                         answer_lines.append(_strip_one_level_prefix(nxt))
                         i += 1
                         continue
