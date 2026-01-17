@@ -1,8 +1,11 @@
 // src/pages/Workflow.tsx
 import React from "react";
+import { Link } from "react-router-dom";
 import UploadBox from "../components/UploadBox";
 import { meCached } from "../auth";
 import { apiFetch } from "../api";
+
+const NOTION_TEMPLATE_URL = "https://n2a-template.notion.site/N2A-Notion-Template-Read-Only-2eb54986383480a2b7b9c652a6893078";
 
 type CardType = "qa" | "mcq";
 type EnglishVariant = "us" | "uk_au";
@@ -77,10 +80,7 @@ function DiffBlock({ original, suggested }: { original: string; suggested: strin
             );
           }
           return (
-            <div
-              key={idx}
-              className="rounded px-1 py-[1px] bg-error/10 border border-error/20 line-through text-error/80"
-            >
+            <div key={idx} className="rounded px-1 py-[1px] bg-error/10 border border-error/20 line-through text-error/80">
               <span className="font-mono opacity-70">− </span>
               {d.text}
             </div>
@@ -794,6 +794,24 @@ export default function Workflow() {
                     File: <span className="font-semibold">{filename || "None"}</span>
                   </div>
 
+                  {/* ✅ Smart hint (Option A): stays in the Upload box, under the drop section */}
+                  <div className="rounded-xl border border-base-300 bg-base-200/40 p-3">
+                    <div className="text-sm font-semibold">Need a template?</div>
+                    <div className="text-xs opacity-70 mt-1">
+                      Duplicate the Notion template to copy the exact formatting N2A expects (especially MCQ answers).
+                    </div>
+
+                    <div className="mt-3 flex flex-col sm:flex-row gap-2">
+                      <a className="btn btn-sm btn-outline" href={NOTION_TEMPLATE_URL} target="_blank" rel="noopener noreferrer">
+                        Duplicate the Notion template
+                      </a>
+
+                      <Link className="btn btn-sm btn-ghost" to="/instructions">
+                        View formatting rules
+                      </Link>
+                    </div>
+                  </div>
+
                   {status && (
                     <div className="alert">
                       <span>{status}</span>
@@ -990,7 +1008,6 @@ export default function Workflow() {
                         <div className="badge badge-outline">{c.card_type.toUpperCase()}</div>
 
                         <div className="flex gap-2 flex-wrap justify-end items-center">
-                          {/* ✅ spinner now "pops" with primary */}
                           {isAiLoading && <span className="loading loading-spinner loading-xs text-primary" />}
 
                           <button
@@ -1049,7 +1066,6 @@ export default function Workflow() {
                             <div className="text-xs font-semibold opacity-70">AI result</div>
 
                             <div className="flex gap-2 items-center">
-                              {/* ✅ Very obvious incorrect */}
                               {incorrect ? (
                                 <span className="badge badge-sm badge-error">Incorrect</span>
                               ) : formatContext && changed ? (
@@ -1064,16 +1080,13 @@ export default function Workflow() {
                             </div>
                           </div>
 
-                          {/* Incorrect callout */}
                           {incorrect ? (
                             <div className="rounded-xl border border-error/30 bg-error/10 p-3">
                               <div className="font-semibold text-error">This card appears incorrect.</div>
                               <div className="text-sm opacity-80 mt-1 whitespace-pre-wrap">
                                 {feedback || "AI flagged the original answer as incorrect. No replacement answer is provided."}
                               </div>
-                              <div className="text-xs opacity-70 mt-2">
-                                Tip: edit the card manually, then re-run AI review.
-                              </div>
+                              <div className="text-xs opacity-70 mt-2">Tip: edit the card manually, then re-run AI review.</div>
                             </div>
                           ) : (
                             <div className="text-sm whitespace-pre-wrap opacity-80">
@@ -1085,11 +1098,6 @@ export default function Workflow() {
                             </div>
                           )}
 
-                          {/* ✅ Suggested output block:
-                              - content/both => show diff
-                              - format => show plain suggested with small summary (no diff)
-                              - incorrect => show nothing
-                          */}
                           {!incorrect && changed && (c.ai_suggest_front || c.ai_suggest_back) && (
                             <details className="collapse collapse-arrow border border-base-300 bg-base-200/40 rounded-xl">
                               <summary className="collapse-title text-sm font-semibold">
@@ -1097,7 +1105,6 @@ export default function Workflow() {
                               </summary>
 
                               <div className="collapse-content space-y-4">
-                                {/* FORMAT-only: quick reassurance message */}
                                 {showPlainSuggested && (
                                   <div className="text-xs opacity-70">
                                     Formatting changed for clarity (spacing/bullets/structure). Content meaning is intended to be unchanged.
