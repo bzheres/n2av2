@@ -3,7 +3,7 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 from ..models import User
 
-PLAN_LIMITS = {"free": 0, "silver": 3000, "gold": 5000, "platinum": 10000}
+PLAN_LIMITS = {"free": 0, "silver": 2000, "gold": 6000, "platinum": 12000}
 
 def current_month_key() -> str:
     now = datetime.utcnow()
