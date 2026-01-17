@@ -22,7 +22,7 @@ type Step = {
 };
 
 // ✅ Put your Notion template URL here (external link)
-const NOTION_TEMPLATE_URL = "https://YOUR_NOTION_TEMPLATE_LINK_HERE";
+const NOTION_TEMPLATE_URL = "https://n2a-template.notion.site/N2A-Notion-Template-Read-Only-2eb54986383480a2b7b9c652a6893078";
 
 const STEPS: Step[] = [
   {
