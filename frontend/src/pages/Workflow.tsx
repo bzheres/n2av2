@@ -908,25 +908,25 @@ export default function Workflow() {
                   <div className="space-y-3">
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                       <button className="btn btn-ghost w-full" disabled={!parsedCount || busy || !canAI} onClick={() => void aiReviewAll(false, "content")}>
-                        AI Review all (content)
+                        AI Content Review
                       </button>
                       <button className="btn btn-ghost w-full" disabled={!parsedCount || busy || !canAI} onClick={() => void aiReviewAll(false, "format")}>
-                        AI Review all (format)
+                        AI Format Review
                       </button>
                       <button className="btn btn-ghost w-full" disabled={!parsedCount || busy || !canAI} onClick={() => void aiReviewAll(false, "both")}>
-                        AI Review all (both)
+                        AI Content and Format Review
                       </button>
                     </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                       <button className="btn btn-outline w-full" disabled={!parsedCount || busy || !canAI} onClick={() => void aiReviewAll(true, "content")}>
-                        Apply AI all (content)
+                        Apply Content Changes
                       </button>
                       <button className="btn btn-outline w-full" disabled={!parsedCount || busy || !canAI} onClick={() => void aiReviewAll(true, "format")}>
-                        Apply AI all (format)
+                        Apply Format Changes
                       </button>
                       <button className="btn btn-outline w-full" disabled={!parsedCount || busy || !canAI} onClick={() => void aiReviewAll(true, "both")}>
-                        Apply AI all (both)
+                        Apply Content and Format Changes
                       </button>
                     </div>
                   </div>
