@@ -22,7 +22,3 @@ frontend/.env.*.local
 .DS_Store
 Thumbs.db
 .vscode/
-
-# temp upload junk
-.tmp.driveupload/
-
