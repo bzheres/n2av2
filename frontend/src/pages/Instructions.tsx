@@ -26,8 +26,8 @@ const NOTION_TEMPLATE_URL = "https://n2a-template.notion.site/N2A-Notion-Templat
 
 const STEPS: Step[] = [
   {
-    title: "1) Quick tour: what N2A does",
-    subtitle: "From Notion → cards → Anki",
+    title: "1) Quick tour",
+    subtitle: "N2A",
     bullets: [
       "Home: Introduction to N2A",
       "Instructions: Comprehensive overview of N2A",
@@ -51,11 +51,12 @@ const STEPS: Step[] = [
       "Importantly, the AI WILL NOT make up answers or change meaning to your cards",
       "From the Account page, you can track how many cards you have generated as well as track how many AI reviews you have left (if applicable)",
     ],
-    mediaType: "image",
-    mediaHint: "Placeholder: screenshot of Account page showing free vs paid state (plan badge + actions)",
-    // mediaSrc: "/images/account-plans.png",
-    // mediaAlt: "Account page showing plan badge and actions",
-    cta: { label: "Go to Account", to: "/account" },
+    mediaType: "video",
+    mediaHint: "Placeholder: 20–40s tour clip: Home → Instructions → Workflow → Account",
+    // ✅ Use /public-relative URL (NOT the Windows filesystem path)
+    mediaSrc: "/videos/n2a_step2_video.mp4",
+    // mediaPoster: "/images/step1_poster.jpg",
+    cta: { label: "Open Workflow", to: "/workflow" },
   },
   {
     title: "3) Format your Notion page so N2A can parse it",
@@ -64,16 +65,17 @@ const STEPS: Step[] = [
       "Currently, N2A only supports simple back and front cards",
       "To make a Notion note a Q&A card, the line must begin with 'Question:' with the question written after",
       "The Answer to the Question must be indented beneath the Question OR bulleted (i.e. 4 spaces, '-', '*')",
-      "To mae a Notion note a MCQ card, the line must begin with 'MCQ:' with the question stem written after",
+      "To make a Notion note a MCQ card, the line must begin with 'MCQ:' with the question stem written after",
       "The MCQ options must be indented OR bulleted underneath the question stem, with one option per line",
       "The MCQ Answer must be written as 'Answer:' with the answer written after OR on the next indented line",
       "Avoid mixing multiple prompts in the same card block",
       "The video above shows real examples of how to structure your Notion notes",
     ],
-    mediaType: "image",
-    mediaHint: "Placeholder: screenshot of a Notion page showing correct Q&A + MCQ blocks",
-    // mediaSrc: "/images/notion-formatting.png",
-    // mediaAlt: "Notion page showing correct Question/MCQ blocks",
+    mediaType: "video",
+    mediaHint: "Placeholder: 20–40s tour clip: Home → Instructions → Workflow → Account",
+    // ✅ Use /public-relative URL (NOT the Windows filesystem path)
+    mediaSrc: "/videos/n2a_step3_video.mp4",
+    // mediaPoster: "/images/step1_poster.jpg",
     cta: {
       label: "Duplicate the Notion template",
       to: NOTION_TEMPLATE_URL,
@@ -88,9 +90,10 @@ const STEPS: Step[] = [
       "Confirm filename shows and Parse becomes available",
     ],
     mediaType: "video",
-    mediaHint: "Placeholder: screen recording: Notion export settings → drag/drop into Workflow",
-    // mediaSrc: "/videos/notion-export-to-upload.mp4",
-    // mediaPoster: "/images/notion-export-to-upload-poster.jpg",
+    mediaHint: "Placeholder: 20–40s tour clip: Home → Instructions → Workflow → Account",
+    // ✅ Use /public-relative URL (NOT the Windows filesystem path)
+    mediaSrc: "/videos/n2a_step4_video.mp4",
+    // mediaPoster: "/images/step1_poster.jpg",
     cta: { label: "Open Workflow", to: "/workflow" },
   },
   {
@@ -101,10 +104,12 @@ const STEPS: Step[] = [
       "Check Total vs Shown counts",
       "You can use the Filter to show only Q&A cards, only MCQ cards, or both by selecting 'All'",
     ],
-    mediaType: "image",
-    mediaHint: "Placeholder: screenshot of Workflow after Parse (counts + project badge)",
-    // mediaSrc: "/images/workflow-after-parse.png",
-    // mediaAlt: "Workflow page showing counts and project badge after parsing",
+    mediaType: "video",
+    mediaHint: "Placeholder: 20–40s tour clip: Home → Instructions → Workflow → Account",
+    // ✅ Use /public-relative URL (NOT the Windows filesystem path)
+    mediaSrc: "/videos/n2a_step5_video.mp4",
+    // mediaPoster: "/images/step1_poster.jpg",
+    cta: { label: "Open Workflow", to: "/workflow" },
   },
   {
     title: "6) Review your cards: preview, edit, delete",
@@ -115,25 +120,14 @@ const STEPS: Step[] = [
       "Use Delete to remove a card from export",
     ],
     mediaType: "video",
-    mediaHint: "Placeholder: clip showing: open cards → Edit → Close → Delete",
-    // mediaSrc: "/videos/workflow-edit-delete.mp4",
-    // mediaPoster: "/images/workflow-edit-delete-poster.jpg",
+    mediaHint: "Placeholder: 20–40s tour clip: Home → Instructions → Workflow → Account",
+    // ✅ Use /public-relative URL (NOT the Windows filesystem path)
+    mediaSrc: "/videos/n2a_step6_video.mp4",
+    // mediaPoster: "/images/step1_poster.jpg",
+    cta: { label: "Open Workflow", to: "/workflow" },
   },
   {
-    title: "7) Export CSV after reviewing for Anki import",
-    subtitle: "Export from Workflow, then import into Anki",
-    bullets: [
-      "Click Export CSV to download a .csv file",
-      "In Anki: File → Import → select your CSV",
-      "You are ready to begin studying!",
-    ],
-    mediaType: "image",
-    mediaHint: "Placeholder: screenshot of Anki import mapping screen (Front/Back fields)",
-    // mediaSrc: "/images/anki-import-mapping.png",
-    // mediaAlt: "Anki import mapping screen showing Front and Back fields",
-  },
-  {
-    title: "8) AI Review: Overview",
+    title: "7) AI Review: Overview",
     subtitle: "Paid users can ask AI to review content, formatting, or both",
     bullets: [
       "AI Content Review: Checks clarity, fixes spelling (US or Aus/UK), suggests small improvements, and flags cards that may be incorrect",
@@ -142,37 +136,12 @@ const STEPS: Step[] = [
       "AI Review does not create new facts and it should not add new information to your cards",
       "AI is NOT perfect. Any suggested changes should be double checked",
     ],
-    mediaType: "image",
-    mediaHint: "Placeholder: screenshot of Workflow AI buttons (Review all / Format all / Both + Apply)",
-    // mediaSrc: "/images/workflow-ai-buttons.png",
-    // mediaAlt: "Workflow AI buttons for reviewing and applying AI changes",
-  },
-  {
-    title: "9) AI Review results: how to read them",
-    subtitle: "See the AI panel on each card, and open the suggested diff view",
-    bullets: [
-      "After an AI review, each card shows an AI result panel (Reviewed / Changes suggested)",
-      "Open “View suggested front/back” to see suggested edits",
-      "Line-by-line highlighting is used for content-level changes",
-      "Cards that have been flagged as incorrect will show 'This card appears incorrect'",
-    ],
     mediaType: "video",
-    mediaHint: "Placeholder: clip: run AI → open AI result panel → expand suggested front/back → see highlights",
-    // mediaSrc: "/videos/ai-results-diff.mp4",
-    // mediaPoster: "/images/ai-results-diff-poster.jpg",
-  },
-  {
-    title: "10) Apply AI (Paid): write suggestions onto the cards",
-    subtitle: "Apply updates the saved card text",
-    bullets: [
-      "Apply AI runs the AI and, if changes are suggested, implemets the suggested changes onto the card",
-      "If a card is flagged as incorrect, Apply should NOT overwrite content",
-      "Use Apply All to process your entire project in one go",
-    ],
-    mediaType: "image",
-    mediaHint: "Placeholder: screenshot of a card after Apply (front/back updated + AI panel visible)",
-    // mediaSrc: "/images/card-after-apply.png",
-    // mediaAlt: "Card preview showing updated content after Apply AI",
+    mediaHint: "Placeholder: 20–40s tour clip: Home → Instructions → Workflow → Account",
+    // ✅ Use /public-relative URL (NOT the Windows filesystem path)
+    mediaSrc: "/videos/n2a_step7_video.mp4",
+    // mediaPoster: "/images/step1_poster.jpg",
+    cta: { label: "Open Workflow", to: "/workflow" },
   },
 ];
 
