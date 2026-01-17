@@ -5,7 +5,8 @@ import UploadBox from "../components/UploadBox";
 import { meCached } from "../auth";
 import { apiFetch } from "../api";
 
-const NOTION_TEMPLATE_URL = "https://n2a-template.notion.site/N2A-Notion-Template-Read-Only-2eb54986383480a2b7b9c652a6893078";
+const NOTION_TEMPLATE_URL =
+  "https://n2a-template.notion.site/N2A-Notion-Template-Read-Only-2eb54986383480a2b7b9c652a6893078";
 
 type CardType = "qa" | "mcq";
 type EnglishVariant = "us" | "uk_au";
@@ -152,41 +153,47 @@ function parseMarkdown(md: string): Omit<Card, "id">[] {
       const stem = lines[i].split(":", 2)[1].trim();
       i++;
       const opts: string[] = [];
-      let ans = "";
+      const ansLines: string[] = [];
       let inAns = false;
 
       while (i < lines.length) {
         if (norm(lines[i])) break;
         const nxt = lines[i];
+
         if (nxt.trim() === "") {
           i++;
           continue;
         }
+
         if (nxt.trim().toLowerCase().startsWith("answer:")) {
           inAns = true;
           i++;
           continue;
         }
+
         if (inAns) {
+          // ✅ allow multi-line answers: any indented line continues the back
           if (/^(\s{4}|\t)/.test(nxt)) {
-            ans = nxt.trim();
+            ansLines.push(nxt.replace(/^(\s{4}|\t)/, "").trimEnd());
             i++;
             continue;
           }
           break;
         }
+
         if (/^(\s{4}|\t|-\s|\*\s)/.test(nxt)) {
           opts.push(nxt.replace(/^(\s{4}|\t|-\s|\*\s)/, "").trimEnd());
           i++;
           continue;
         }
+
         break;
       }
 
       out.push({
         card_type: "mcq",
         front: opts.length ? `${stem}\n${opts.join("\n")}` : stem,
-        back: ans.trim(),
+        back: ansLines.join("\n").trim(),
       });
       continue;
     }
@@ -204,7 +211,10 @@ function formatMcqOptions(front: string, style: McqStyle): string {
   if (lines.length <= 1) return front;
 
   const stem = lines[0];
-  const opts = lines.slice(1).filter((l) => l.trim().length > 0);
+  const opts = lines
+    .slice(1)
+    .map((l) => l.trimEnd())
+    .filter((l) => l.trim().length > 0);
 
   const labelFor = (idx: number) => {
     const n = idx + 1;
@@ -229,26 +239,46 @@ function formatMcqOptions(front: string, style: McqStyle): string {
     }
   };
 
+  // ✅ Fix: only strip a leading "label" if it's the *entire* option label at start,
+  // so we don't accidentally delete content.
   const rebuilt = opts.map((o, i) => {
-    const cleaned = o.replace(/^\s*([A-Za-z]|\d+)[\)\.]\s+/, "").trim();
+    const cleaned = o.replace(/^\s*(?:([A-Za-z]|\d+)[\)\.])\s+/, "").trim();
     return `${labelFor(i)} ${cleaned}`;
   });
 
   return [stem, ...rebuilt].join("\n");
 }
 
+/**
+ * ✅ Fixes the “18)” / missing-first-letter issue:
+ * - We DO NOT treat arbitrary strings like "Reason:" as an option label.
+ * - We only normalize the FIRST LINE if it clearly begins with A)/1)/A./1. etc.
+ * - We preserve additional lines (multi-line MCQ answers) verbatim under it.
+ */
 function formatMcqAnswer(back: string, style: McqStyle): string {
   const raw = (back || "").trim();
   if (!raw) return raw;
 
-  const m = raw.match(/^(\s*(answer:\s*)?)\s*([A-Za-z]|\d+)[\)\.\:]?\s*(.*)$/i);
+  const lines = raw.split("\n");
+  const first = (lines[0] || "").trim();
+  const rest = lines.slice(1);
+
+  // Only accept explicit option labels like:
+  //   "B) ..." / "2) ..." / "B." / "2." / "B)" alone / "2)" alone
+  // Optional "Answer:" prefix is okay.
+  const m = first.match(/^(?:answer:\s*)?([A-Za-z]|\d+)\s*([\)\.])(?:\s+(.*))?$/i);
   if (!m) return raw;
 
-  const token = m[3];
-  const rest = (m[4] || "").trim();
+  const token = m[1];
+  const trailing = (m[3] || "").trim();
 
   const isNum = /^\d+$/.test(token);
-  const idx = isNum ? Math.max(parseInt(token, 10) - 1, 0) : token.toUpperCase().charCodeAt(0) - "A".charCodeAt(0);
+  const idx = isNum
+    ? Math.max(parseInt(token, 10) - 1, 0)
+    : token.toUpperCase().charCodeAt(0) - "A".charCodeAt(0);
+
+  // Guard nonsense
+  if (idx < 0 || idx > 25) return raw;
 
   const n = idx + 1;
   const A = String.fromCharCode("A".charCodeAt(0) + idx);
@@ -278,7 +308,8 @@ function formatMcqAnswer(back: string, style: McqStyle): string {
       label = `${n})`;
   }
 
-  return rest ? `${label} ${rest}` : label;
+  const firstLine = trailing ? `${label} ${trailing}` : label;
+  return [firstLine, ...rest].join("\n").trim();
 }
 
 function normFlag(flag: string | null | undefined) {

@@ -9,26 +9,35 @@ class ParsedCard:
     back: str
     raw: str | None = None
 
-
 def _norm_tag(line: str) -> str | None:
     s = line.strip().lower()
-    if s.startswith("question:") or s.startswith("quesition:") or s.startswith("quesiton:"):
+    if s.startswith(("question:", "quesition:", "quesiton:")):
         return "question"
-    if s.startswith("mcq:") or s.startswith("mcu:"):
+    if s.startswith(("mcq:", "mcu:")):
         return "mcq"
     return None
 
+def _is_indented_or_bulleted(line: str) -> bool:
+    # treat tabs OR >=4 spaces OR "- " OR "* " as content lines
+    return (
+        line.startswith("\t")
+        or line.startswith("    ")
+        or line.startswith("- ")
+        or line.startswith("* ")
+    )
 
-def _is_answer_or_option_line(line: str) -> bool:
-    """Treat these as 'belonging to the current block'."""
-    return line.startswith(("    ", "\t", "- ", "* ", "• "))
-
-
-def _strip_prefix(line: str) -> str:
-    """Remove indentation/bullet prefix while preserving the content."""
-    # For indents, remove leading whitespace; for bullets, remove bullet markers too.
+def _strip_one_level_prefix(line: str) -> str:
+    # Remove exactly ONE level of indentation/bullet marker, preserve inner structure
+    if line.startswith("\t"):
+        return line[1:].rstrip()
+    if line.startswith("    "):
+        return line[4:].rstrip()
+    if line.startswith("- "):
+        return line[2:].rstrip()
+    if line.startswith("* "):
+        return line[2:].rstrip()
+    # fallback: strip common symbols at start
     return line.lstrip(" \t-*•").rstrip()
-
 
 def parse_markdown(md_text: str) -> List[ParsedCard]:
     lines = md_text.splitlines()
@@ -55,14 +64,22 @@ def parse_markdown(md_text: str) -> List[ParsedCard]:
                 if _norm_tag(nxt):
                     break
 
-                if _is_answer_or_option_line(nxt):
-                    ans_lines.append(_strip_prefix(nxt))
-                elif nxt.strip() == "":
+                if nxt.strip() == "":
+                    # keep blank lines only after answer starts
                     if ans_lines:
                         ans_lines.append("")
-                else:
-                    if ans_lines:
-                        break
+                    i += 1
+                    continue
+
+                if _is_indented_or_bulleted(nxt):
+                    ans_lines.append(_strip_one_level_prefix(nxt))
+                    i += 1
+                    continue
+
+                # stop once answer has started and we hit a non-answer line
+                if ans_lines:
+                    break
+
                 i += 1
 
             back = "\n".join(ans_lines).strip()
@@ -85,36 +102,39 @@ def parse_markdown(md_text: str) -> List[ParsedCard]:
                 if _norm_tag(nxt):
                     break
 
-                # Ignore leading blank lines between blocks
+                # allow blank lines anywhere
                 if nxt.strip() == "":
+                    # keep blank lines inside answer block (optional)
+                    if in_answer and answer_lines:
+                        answer_lines.append("")
                     i += 1
                     continue
 
-                # Detect Answer: (supports "Answer:" alone OR "Answer: B) ..." inline)
+                # Answer: can be on its own line OR "Answer: B) ..."
                 if nxt.strip().lower().startswith("answer:"):
                     in_answer = True
-                    inline = nxt.split(":", 1)[1].strip()
-                    if inline:
-                        answer_lines.append(inline)
+                    after = nxt.split(":", 1)[1].strip()
+                    if after:
+                        # Answer on same line
+                        answer_lines.append(after)
                     i += 1
                     continue
 
-                # Collect multi-line answer (indented OR bulleted)
                 if in_answer:
-                    if nxt.startswith(("    ", "\t", "- ", "* ", "• ")):
-                        answer_lines.append(_strip_prefix(nxt))
+                    # Accept multiple answer lines if indented/bulleted
+                    if _is_indented_or_bulleted(nxt) or nxt.startswith(("\t", "    ")):
+                        answer_lines.append(_strip_one_level_prefix(nxt))
                         i += 1
                         continue
-                    # any non-indented line ends the answer block
+                    # stop answer block when no longer indented/bulleted
                     break
 
-                # Collect options (indented OR bulleted)
-                if nxt.startswith(("    ", "\t", "- ", "* ", "• ")):
-                    options.append(_strip_prefix(nxt))
+                # options (before Answer:)
+                if _is_indented_or_bulleted(nxt):
+                    options.append(_strip_one_level_prefix(nxt))
                     i += 1
                     continue
 
-                # Any other non-empty, non-indented line ends the MCQ block
                 break
 
             front = stem + ("\n" + "\n".join(options) if options else "")
