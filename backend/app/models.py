@@ -1,7 +1,9 @@
 from __future__ import annotations
+
 from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, Boolean
 from sqlalchemy.sql import func
 from .db import Base
+
 
 class User(Base):
     __tablename__ = "users"
@@ -11,11 +13,26 @@ class User(Base):
     password_hash = Column(String(255), nullable=False)
 
     stripe_customer_id = Column(String(255), nullable=True)
+
+    # ✅ NEW: store subscription id + cycle dates from Stripe (webhook-authoritative)
+    stripe_subscription_id = Column(String(255), nullable=True)
+    stripe_current_period_start = Column(DateTime(timezone=True), nullable=True)
+    stripe_current_period_end = Column(DateTime(timezone=True), nullable=True)
+
     plan = Column(String(32), nullable=False, default="free")
+
+    # ✅ OLD calendar-month fields can remain for compatibility, but no longer used for AI billing logic
     usage_month = Column(String(16), nullable=True)
+
+    # ✅ AI usage counter (resets per billing period)
     usage_count = Column(Integer, nullable=False, default=0)
 
+    # ✅ NEW: usage window aligned to Stripe billing period
+    usage_period_start = Column(DateTime(timezone=True), nullable=True)
+    usage_period_end = Column(DateTime(timezone=True), nullable=True)
+
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
 
 class PasswordReset(Base):
     __tablename__ = "password_resets"
@@ -26,12 +43,14 @@ class PasswordReset(Base):
     used = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
+
 class Project(Base):
     __tablename__ = "projects"
     id = Column(Integer, primary_key=True)
     owner_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     name = Column(String(255), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
 
 class Card(Base):
     __tablename__ = "cards"

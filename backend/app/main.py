@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import settings
-from .db import engine, Base
+from .db import engine, Base, ensure_schema
 
 from .routes.auth_routes import router as auth_router
 from .routes.projects_routes import router as projects_router
@@ -13,9 +13,10 @@ from .routes.export_routes import router as export_router
 from .routes.ai_routes import router as ai_router
 from .routes.billing_routes import router as billing_router
 from .routes.stripe_webhook_routes import router as stripe_router
-from .routes.usage_routes import router as usage_router  # ✅ ADD
+from .routes.usage_routes import router as usage_router
 
 Base.metadata.create_all(bind=engine)
+ensure_schema()  # ✅ add missing columns safely
 
 app = FastAPI(title="N2A API", version="2.0")
 
@@ -73,4 +74,4 @@ app.include_router(export_router)
 app.include_router(ai_router)
 app.include_router(billing_router)
 app.include_router(stripe_router)
-app.include_router(usage_router)  # ✅ ADD
+app.include_router(usage_router)
