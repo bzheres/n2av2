@@ -3,6 +3,9 @@ import { Link } from "react-router-dom";
 
 type Step = { title: string; body: string };
 
+// ✅ External Notion template URL
+const NOTION_TEMPLATE_URL = "https://n2a-template.notion.site/N2A-Notion-Template-Read-Only-2eb54986383480a2b7b9c652a6893078";
+
 const STEPS: Step[] = [
   {
     title: "Upload",
@@ -83,19 +86,20 @@ export default function Home() {
   return (
     <div className="-mx-4 md:-mx-6 lg:-mx-8">
       {/* =========================
-          HERO (no card look)
+          HERO
          ========================= */}
       <section className="px-4 md:px-6 lg:px-8 py-14 md:py-20 bg-base-100">
         <div className="max-w-6xl mx-auto">
           <div className="text-center space-y-5">
             <h1 className="text-4xl md:text-6xl font-extrabold tracking-tight leading-tight">
-              Turn <span className="text-primary">Notion</span> notes into <span className="text-primary">Anki</span>{" "}
-              cards — <span className="text-primary">fast</span>
+              Turn <span className="text-primary">Notion</span> notes into{" "}
+              <span className="text-primary">Anki</span> cards —{" "}
+              <span className="text-primary">fast</span>
             </h1>
 
             <p className="opacity-80 max-w-2xl mx-auto text-base md:text-lg">
-              Simply upload a Notion Markdown export, generate cards, preview, edit, then export CSV to Anki to begin learning! Optional AI review
-              on paid plans.
+              Simply upload a Notion Markdown export, generate cards, preview, edit, then export CSV to Anki to begin
+              learning! Optional AI review on paid plans.
             </p>
 
             <div className="pt-3 flex flex-col sm:flex-row justify-center gap-3">
@@ -109,14 +113,12 @@ export default function Home() {
                 Account
               </Link>
             </div>
-
           </div>
         </div>
       </section>
 
       {/* =========================
-          FLOW (free-tier overview)
-          Scroll-activated highlight + hover polish
+          FLOW
          ========================= */}
       <section className="px-4 md:px-6 lg:px-8 py-12 md:py-14 bg-base-200">
         <div className="max-w-5xl mx-auto">
@@ -151,7 +153,6 @@ export default function Home() {
                     <div className="flex-1">
                       <div className="flex items-center justify-between gap-3">
                         <div className="font-semibold text-lg">{s.title}</div>
-
                         <div
                           className={[
                             "h-2 w-2 rounded-full transition-all",
@@ -177,7 +178,7 @@ export default function Home() {
       </section>
 
       {/* =========================
-          PREVIEW (Match Workflow styling)
+          PREVIEW
          ========================= */}
       <section className="px-4 md:px-6 lg:px-8 py-12 md:py-14 bg-base-100">
         <div className="max-w-6xl mx-auto">
@@ -188,7 +189,7 @@ export default function Home() {
           </div>
 
           <div className="grid lg:grid-cols-2 gap-5">
-            {/* Q&A Preview (Workflow-style) */}
+            {/* Q&A Preview */}
             <div className="card bg-base-200/40 border border-base-300 rounded-2xl">
               <div className="card-body space-y-3">
                 <div className="flex items-center justify-between gap-2">
@@ -208,7 +209,7 @@ export default function Home() {
               </div>
             </div>
 
-            {/* MCQ Preview (Workflow-style) */}
+            {/* MCQ Preview */}
             <div className="card bg-base-200/40 border border-base-300 rounded-2xl">
               <div className="card-body space-y-3">
                 <div className="flex items-center justify-between gap-2">
@@ -229,13 +230,24 @@ export default function Home() {
             </div>
           </div>
 
+          {/* ✅ UPDATED BUTTON ROW */}
           <div className="mt-8 flex justify-center gap-3 flex-col sm:flex-row">
             <Link to="/workflow" className="btn btn-primary">
               Generate my cards
             </Link>
+
             <Link to="/instructions" className="btn btn-outline">
               Learn formatting rules
             </Link>
+
+            <a
+              href={NOTION_TEMPLATE_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn"
+            >
+              Duplicate the Notion template
+            </a>
           </div>
         </div>
       </section>
