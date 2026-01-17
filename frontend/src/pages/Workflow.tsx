@@ -805,10 +805,6 @@ export default function Workflow() {
                       <a className="btn btn-sm btn-outline" href={NOTION_TEMPLATE_URL} target="_blank" rel="noopener noreferrer">
                         Duplicate the Notion template
                       </a>
-
-                      <Link className="btn btn-sm btn-ghost" to="/instructions">
-                        View formatting rules
-                      </Link>
                     </div>
                   </div>
 
