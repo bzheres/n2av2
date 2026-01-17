@@ -21,6 +21,9 @@ type Step = {
   cta?: { label: string; to: string };
 };
 
+// ✅ Put your Notion template URL here (external link)
+const NOTION_TEMPLATE_URL = "https://YOUR_NOTION_TEMPLATE_LINK_HERE";
+
 const STEPS: Step[] = [
   {
     title: "1) Quick tour: what N2A does",
@@ -71,6 +74,10 @@ const STEPS: Step[] = [
     mediaHint: "Placeholder: screenshot of a Notion page showing correct Q&A + MCQ blocks",
     // mediaSrc: "/images/notion-formatting.png",
     // mediaAlt: "Notion page showing correct Question/MCQ blocks",
+    cta: {
+      label: "Duplicate the Notion template",
+      to: NOTION_TEMPLATE_URL,
+    },
   },
   {
     title: "4) Export from Notion and then upload into Workflow",
@@ -89,7 +96,11 @@ const STEPS: Step[] = [
   {
     title: "5) Parse: generate your card previews",
     subtitle: "Parsing turns your Markdown blocks into Q&A and MCQ cards",
-    bullets: ["Click Parse to generate cards", "Check Total vs Shown counts", "You can use the Filter to show only Q&A cards, only MCQ cards, or both by selecting 'All'"],
+    bullets: [
+      "Click Parse to generate cards",
+      "Check Total vs Shown counts",
+      "You can use the Filter to show only Q&A cards, only MCQ cards, or both by selecting 'All'",
+    ],
     mediaType: "image",
     mediaHint: "Placeholder: screenshot of Workflow after Parse (counts + project badge)",
     // mediaSrc: "/images/workflow-after-parse.png",
@@ -98,7 +109,11 @@ const STEPS: Step[] = [
   {
     title: "6) Review your cards: preview, edit, delete",
     subtitle: "Clean up before export so your Anki import is smooth",
-    bullets: ["Each card shows a preview of how the Front and Back will look in Anki", "Use Edit to change the raw front and back text", "Use Delete to remove a card from export"],
+    bullets: [
+      "Each card shows a preview of how the Front and Back will look in Anki",
+      "Use Edit to change the raw front and back text",
+      "Use Delete to remove a card from export",
+    ],
     mediaType: "video",
     mediaHint: "Placeholder: clip showing: open cards → Edit → Close → Delete",
     // mediaSrc: "/videos/workflow-edit-delete.mp4",
@@ -107,7 +122,11 @@ const STEPS: Step[] = [
   {
     title: "7) Export CSV after reviewing for Anki import",
     subtitle: "Export from Workflow, then import into Anki",
-    bullets: ["Click Export CSV to download a .csv file", "In Anki: File → Import → select your CSV", "You are ready to begin studying!"],
+    bullets: [
+      "Click Export CSV to download a .csv file",
+      "In Anki: File → Import → select your CSV",
+      "You are ready to begin studying!",
+    ],
     mediaType: "image",
     mediaHint: "Placeholder: screenshot of Anki import mapping screen (Front/Back fields)",
     // mediaSrc: "/images/anki-import-mapping.png",
@@ -190,7 +209,8 @@ export default function Instructions() {
       <section className="px-4 md:px-6 lg:px-8 py-10 md:py-12 bg-base-100">
         <div className="max-w-6xl mx-auto text-center space-y-3">
           <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight">
-            Instructions: From <span className="text-primary">Notion</span> notes to <span className="text-primary">Anki</span> flashcards
+            Instructions: From <span className="text-primary">Notion</span> notes to{" "}
+            <span className="text-primary">Anki</span> flashcards
           </h1>
 
           <div className="flex flex-col sm:flex-row justify-center gap-3 pt-2">
@@ -310,7 +330,7 @@ export default function Instructions() {
                 </div>
               </div>
 
-              {/* Media block: no "Image/Video tag", supports click-to-zoom */}
+              {/* Media block: supports click-to-zoom */}
               <div className="rounded-2xl border border-base-300 bg-base-200/40 overflow-hidden">
                 <div className="px-4 md:px-5 py-5">
                   <div
@@ -334,7 +354,6 @@ export default function Instructions() {
                             loading="lazy"
                           />
                         ) : (
-                          // ✅ Videos should NOT autoplay. Keep controls available.
                           <video
                             src={step.mediaSrc}
                             poster={step.mediaPoster}
@@ -342,24 +361,18 @@ export default function Instructions() {
                             preload="metadata"
                             playsInline
                             className="w-full h-full object-cover"
-                            onClick={(e) => {
-                              // Prevent clicking controls from opening zoom.
-                              // Only the outer button opens zoom; this keeps native controls usable.
-                              e.stopPropagation();
-                            }}
+                            onClick={(e) => e.stopPropagation()}
                           />
                         )}
-
-                        {/* subtle hint overlay */}
-                        <div className="pointer-events-none absolute" />
                       </button>
                     ) : (
                       <div className="w-full h-full flex items-center justify-center">
                         <div className="text-center space-y-2 px-6">
                           <div className="text-sm opacity-70">{step.mediaHint}</div>
                           <div className="text-xs opacity-50">
-                            Add <span className="font-semibold">mediaSrc</span> to this step to show your media here (e.g.{" "}
-                            <span className="font-semibold">/videos/your-file.mp4</span> or <span className="font-semibold">/images/your-file.png</span>).
+                            Add <span className="font-semibold">mediaSrc</span> to this step to show your media here
+                            (e.g. <span className="font-semibold">/videos/your-file.mp4</span> or{" "}
+                            <span className="font-semibold">/images/your-file.png</span>).
                           </div>
                         </div>
                       </div>
@@ -386,19 +399,37 @@ export default function Instructions() {
 
               {/* CTA row */}
               <div className="flex flex-col sm:flex-row gap-3 pt-2">
-                <button className="btn btn-outline" onClick={() => setIdx((v) => clamp(v - 1, 0, total - 1))} disabled={idx === 0}>
+                <button
+                  className="btn btn-outline"
+                  onClick={() => setIdx((v) => clamp(v - 1, 0, total - 1))}
+                  disabled={idx === 0}
+                >
                   ← Previous step
                 </button>
 
-                <button className="btn btn-primary" onClick={() => setIdx((v) => clamp(v + 1, 0, total - 1))} disabled={idx === total - 1}>
+                <button
+                  className="btn btn-primary"
+                  onClick={() => setIdx((v) => clamp(v + 1, 0, total - 1))}
+                  disabled={idx === total - 1}
+                >
                   Next step →
                 </button>
 
-                {step.cta && (
-                  <Link to={step.cta.to} className="btn">
-                    {step.cta.label}
-                  </Link>
-                )}
+                {step.cta &&
+                  (step.cta.to.startsWith("http") ? (
+                    <a
+                      href={step.cta.to}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="btn"
+                    >
+                      {step.cta.label}
+                    </a>
+                  ) : (
+                    <Link to={step.cta.to} className="btn">
+                      {step.cta.label}
+                    </Link>
+                  ))}
               </div>
             </div>
           </main>
