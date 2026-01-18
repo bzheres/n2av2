@@ -2,6 +2,8 @@ import React from "react";
 import { signup, login, logout, requestPasswordReset, resetPassword } from "../auth";
 import { apiFetch } from "../api";
 import { useAuth } from "../auth_state";
+import Seo from "../components/Seo";
+
 
 type PlanKey = "free" | "silver" | "gold" | "platinum";
 
@@ -259,290 +261,300 @@ export default function Account() {
   const cardsThisMonth = usage?.cards_created_this_month ?? 0;
 
   return (
-    <div className="-mx-4 md:-mx-6 lg:-mx-8 space-y-10">
-      <section className="px-4 md:px-6 lg:px-8 py-10 bg-base-200">
-        <div className="max-w-6xl mx-auto">
-          <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
-            <div>
-              <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight">
-                Welcome, <span className="text-primary">{user ? (user as any).username : "Guest"}</span>
-              </h1>
-              <p className="opacity-80 mt-2 max-w-2xl">Manage your account, subscription, and AI review usage.</p>
-            </div>
+    <>
+      <Seo
+        title="Account"
+        description="Manage your N2A account, subscription, and AI review usage."
+        canonicalPath="/account"
+        noindex
+      />
 
-            {user && (
-              <div className="flex gap-2 flex-wrap">
-                <button className="btn btn-outline" onClick={doPortal} disabled={portalBusy}>
-                  {portalBusy ? "Opening…" : "Manage / cancel subscription"}
-                </button>
+      <div className="-mx-4 md:-mx-6 lg:-mx-8 space-y-10">
 
-                <button className="btn btn-outline" onClick={refreshUsage} disabled={usageBusy}>
-                  {usageBusy ? "Refreshing…" : "Refresh usage"}
-                </button>
-
-                <button className="btn" onClick={doLogout}>
-                  Logout
-                </button>
+        <section className="px-4 md:px-6 lg:px-8 py-10 bg-base-200">
+          <div className="max-w-6xl mx-auto">
+            <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
+              <div>
+                <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight">
+                  Welcome, <span className="text-primary">{user ? (user as any).username : "Guest"}</span>
+                </h1>
+                <p className="opacity-80 mt-2 max-w-2xl">Manage your account, subscription, and AI review usage.</p>
               </div>
-            )}
-          </div>
-        </div>
-      </section>
 
-      <section className="px-4 md:px-6 lg:px-8 pb-12 bg-base-100">
-        <div className="max-w-6xl mx-auto space-y-10">
-          <div className="grid lg:grid-cols-2 gap-6">
-            <div id="account-auth-card" className="card bg-base-200/60 border border-base-300 rounded-2xl">
-              <div className="card-body space-y-4">
-                <div className="flex items-center justify-between gap-3">
-                  <h2 className="card-title text-2xl">Account</h2>
-                  {!user && (
-                    <div className="tabs tabs-boxed">
-                      <a className={`tab ${mode === "login" ? "tab-active" : ""}`} onClick={() => setMode("login")}>
-                        Login
-                      </a>
-                      <a className={`tab ${mode === "signup" ? "tab-active" : ""}`} onClick={() => setMode("signup")}>
-                        Create
-                      </a>
-                      <span />
-                    </div>
-                  )}
+              {user && (
+                <div className="flex gap-2 flex-wrap">
+                  <button className="btn btn-outline" onClick={doPortal} disabled={portalBusy}>
+                    {portalBusy ? "Opening…" : "Manage / cancel subscription"}
+                  </button>
+
+                  <button className="btn btn-outline" onClick={refreshUsage} disabled={usageBusy}>
+                    {usageBusy ? "Refreshing…" : "Refresh usage"}
+                  </button>
+
+                  <button className="btn" onClick={doLogout}>
+                    Logout
+                  </button>
                 </div>
+              )}
+            </div>
+          </div>
+        </section>
 
-                {!user ? (
-                  <>
-                    <form
-                      className="space-y-3"
-                      onSubmit={(e) => {
-                        e.preventDefault();
-                        if (!busy) void submitAuth();
-                      }}
-                    >
-                      {mode === "signup" && (
-                        <input
-                          className="input input-bordered w-full"
-                          placeholder="Username"
-                          value={username}
-                          onChange={(e) => setUsername(e.target.value)}
-                        />
-                      )}
+        <section className="px-4 md:px-6 lg:px-8 pb-12 bg-base-100">
+          <div className="max-w-6xl mx-auto space-y-10">
+            <div className="grid lg:grid-cols-2 gap-6">
+              <div id="account-auth-card" className="card bg-base-200/60 border border-base-300 rounded-2xl">
+                <div className="card-body space-y-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <h2 className="card-title text-2xl">Account</h2>
+                    {!user && (
+                      <div className="tabs tabs-boxed">
+                        <a className={`tab ${mode === "login" ? "tab-active" : ""}`} onClick={() => setMode("login")}>
+                          Login
+                        </a>
+                        <a className={`tab ${mode === "signup" ? "tab-active" : ""}`} onClick={() => setMode("signup")}>
+                          Create
+                        </a>
+                        <span />
+                      </div>
+                    )}
+                  </div>
 
-                      <input
-                        className="input input-bordered w-full"
-                        placeholder="Email"
-                        type="email"
-                        value={email}
-                        onChange={(e) => setEmail(e.target.value)}
-                        autoComplete="email"
-                      />
-
-                      <input
-                        className="input input-bordered w-full"
-                        placeholder="Password"
-                        type="password"
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        autoComplete={mode === "signup" ? "new-password" : "current-password"}
-                      />
-
-                      {err && <div className="alert alert-error">{err}</div>}
-
-                      <button className="btn btn-primary w-full" type="submit" disabled={busy}>
-                        {busy ? "Please wait…" : mode === "signup" ? "Create account" : "Login"}
-                      </button>
-                    </form>
-
-                    <div className="divider">Password reset</div>
-                    <div className="space-y-3">
-                      <input
-                        className="input input-bordered w-full"
-                        placeholder="Email for reset"
-                        value={resetEmail}
-                        onChange={(e) => setResetEmail(e.target.value)}
-                        type="email"
-                      />
-                      <button
-                        className="btn btn-outline w-full"
-                        disabled={resetBusy || !resetEmail}
-                        onClick={async () => {
-                          setResetBusy(true);
-                          try {
-                            await requestPasswordReset(resetEmail);
-                            setSent(true);
-                          } finally {
-                            setResetBusy(false);
-                          }
-                        }}
-                      >
-                        {resetBusy ? "Sending…" : "Send reset email"}
-                      </button>
-                      {sent && (
-                        <div className="alert">
-                          <span>If that email exists, a reset link was sent.</span>
-                        </div>
-                      )}
-                    </div>
-
-                    <details className="mt-2">
-                      <summary className="cursor-pointer opacity-80">Reset with token (testing)</summary>
-
+                  {!user ? (
+                    <>
                       <form
-                        className="mt-3 space-y-3"
-                        onSubmit={async (e) => {
+                        className="space-y-3"
+                        onSubmit={(e) => {
                           e.preventDefault();
-                          if (!resetToken || !newPass) return;
-                          await resetPassword(resetToken, newPass);
-                          await refresh();
-                          await refreshUsage();
+                          if (!busy) void submitAuth();
                         }}
                       >
+                        {mode === "signup" && (
+                          <input
+                            className="input input-bordered w-full"
+                            placeholder="Username"
+                            value={username}
+                            onChange={(e) => setUsername(e.target.value)}
+                          />
+                        )}
+
                         <input
                           className="input input-bordered w-full"
-                          placeholder="Reset token"
-                          value={resetToken}
-                          onChange={(e) => setResetToken(e.target.value)}
+                          placeholder="Email"
+                          type="email"
+                          value={email}
+                          onChange={(e) => setEmail(e.target.value)}
+                          autoComplete="email"
                         />
+
                         <input
                           className="input input-bordered w-full"
-                          placeholder="New password"
+                          placeholder="Password"
                           type="password"
-                          value={newPass}
-                          onChange={(e) => setNewPass(e.target.value)}
+                          value={password}
+                          onChange={(e) => setPassword(e.target.value)}
+                          autoComplete={mode === "signup" ? "new-password" : "current-password"}
                         />
-                        <button className="btn btn-primary w-full" type="submit">
-                          Reset password
+
+                        {err && <div className="alert alert-error">{err}</div>}
+
+                        <button className="btn btn-primary w-full" type="submit" disabled={busy}>
+                          {busy ? "Please wait…" : mode === "signup" ? "Create account" : "Login"}
                         </button>
                       </form>
-                    </details>
-                  </>
-                ) : (
-                  <>
-                    {err && <div className="alert alert-error">{err}</div>}
-                    <div className="alert">
-                      <span>You’re logged in.</span>
-                    </div>
-                  </>
-                )}
-              </div>
-            </div>
 
-            <div className="card bg-base-200/60 border border-base-300 rounded-2xl">
-              <div className="card-body space-y-4">
-                <h3 className="card-title text-2xl">Profile</h3>
+                      <div className="divider">Password reset</div>
+                      <div className="space-y-3">
+                        <input
+                          className="input input-bordered w-full"
+                          placeholder="Email for reset"
+                          value={resetEmail}
+                          onChange={(e) => setResetEmail(e.target.value)}
+                          type="email"
+                        />
+                        <button
+                          className="btn btn-outline w-full"
+                          disabled={resetBusy || !resetEmail}
+                          onClick={async () => {
+                            setResetBusy(true);
+                            try {
+                              await requestPasswordReset(resetEmail);
+                              setSent(true);
+                            } finally {
+                              setResetBusy(false);
+                            }
+                          }}
+                        >
+                          {resetBusy ? "Sending…" : "Send reset email"}
+                        </button>
+                        {sent && (
+                          <div className="alert">
+                            <span>If that email exists, a reset link was sent.</span>
+                          </div>
+                        )}
+                      </div>
 
-                <div className="grid sm:grid-cols-2 gap-4">
-                  <div className="p-4 rounded-2xl bg-base-100 border border-base-300">
-                    <div className="text-sm opacity-70">Username</div>
-                    <div className="font-semibold text-lg">{user ? (user as any).username : "Guest"}</div>
-                  </div>
+                      <details className="mt-2">
+                        <summary className="cursor-pointer opacity-80">Reset with token (testing)</summary>
 
-                  <div className="p-4 rounded-2xl bg-base-100 border border-base-300">
-                    <div className="text-sm opacity-70">Email</div>
-                    <div className="font-semibold text-lg">{user ? (user as any).email : "—"}</div>
-                  </div>
-
-                  <div className="p-4 rounded-2xl bg-base-100 border border-base-300">
-                    <div className="text-sm opacity-70">Tier</div>
-                    <div className="font-semibold text-lg text-primary">{planLabel(currentPlan)}</div>
-                  </div>
-
-                  {/* ✅ removed Stripe linked box */}
+                        <form
+                          className="mt-3 space-y-3"
+                          onSubmit={async (e) => {
+                            e.preventDefault();
+                            if (!resetToken || !newPass) return;
+                            await resetPassword(resetToken, newPass);
+                            await refresh();
+                            await refreshUsage();
+                          }}
+                        >
+                          <input
+                            className="input input-bordered w-full"
+                            placeholder="Reset token"
+                            value={resetToken}
+                            onChange={(e) => setResetToken(e.target.value)}
+                          />
+                          <input
+                            className="input input-bordered w-full"
+                            placeholder="New password"
+                            type="password"
+                            value={newPass}
+                            onChange={(e) => setNewPass(e.target.value)}
+                          />
+                          <button className="btn btn-primary w-full" type="submit">
+                            Reset password
+                          </button>
+                        </form>
+                      </details>
+                    </>
+                  ) : (
+                    <>
+                      {err && <div className="alert alert-error">{err}</div>}
+                      <div className="alert">
+                        <span>You’re logged in.</span>
+                      </div>
+                    </>
+                  )}
                 </div>
+              </div>
 
-                <div className="divider">Usage</div>
+              <div className="card bg-base-200/60 border border-base-300 rounded-2xl">
+                <div className="card-body space-y-4">
+                  <h3 className="card-title text-2xl">Profile</h3>
 
-                <div className="grid sm:grid-cols-2 gap-4">
-                  <div className="p-4 rounded-2xl bg-base-100 border border-base-300">
-                    <div className="text-sm opacity-70">Cards created (total)</div>
-                    <div className="font-semibold text-2xl">{cardsTotal}</div>
-                    <div className="text-xs opacity-60 mt-1">This month: {cardsThisMonth}</div>
-                  </div>
-
-                  <div className="p-4 rounded-2xl bg-base-100 border border-base-300">
-                    <div className="text-sm opacity-70">AI reviews (this month)</div>
-                    <div className="font-semibold text-2xl">
-                      {aiUsed} / {aiLimit}
+                  <div className="grid sm:grid-cols-2 gap-4">
+                    <div className="p-4 rounded-2xl bg-base-100 border border-base-300">
+                      <div className="text-sm opacity-70">Username</div>
+                      <div className="font-semibold text-lg">{user ? (user as any).username : "Guest"}</div>
                     </div>
-                    <div className="text-xs opacity-60 mt-1">Remaining: {aiRemaining}</div>
+
+                    <div className="p-4 rounded-2xl bg-base-100 border border-base-300">
+                      <div className="text-sm opacity-70">Email</div>
+                      <div className="font-semibold text-lg">{user ? (user as any).email : "—"}</div>
+                    </div>
+
+                    <div className="p-4 rounded-2xl bg-base-100 border border-base-300">
+                      <div className="text-sm opacity-70">Tier</div>
+                      <div className="font-semibold text-lg text-primary">{planLabel(currentPlan)}</div>
+                    </div>
+
+                    {/* ✅ removed Stripe linked box */}
                   </div>
+
+                  <div className="divider">Usage</div>
+
+                  <div className="grid sm:grid-cols-2 gap-4">
+                    <div className="p-4 rounded-2xl bg-base-100 border border-base-300">
+                      <div className="text-sm opacity-70">Cards created (total)</div>
+                      <div className="font-semibold text-2xl">{cardsTotal}</div>
+                      <div className="text-xs opacity-60 mt-1">This month: {cardsThisMonth}</div>
+                    </div>
+
+                    <div className="p-4 rounded-2xl bg-base-100 border border-base-300">
+                      <div className="text-sm opacity-70">AI reviews (this month)</div>
+                      <div className="font-semibold text-2xl">
+                        {aiUsed} / {aiLimit}
+                      </div>
+                      <div className="text-xs opacity-60 mt-1">Remaining: {aiRemaining}</div>
+                    </div>
+                  </div>
+
+                  {!user ? null : usageBusy ? (
+                    <p className="text-sm opacity-70">Refreshing usage…</p>
+                  ) : usage ? (
+                    <p className="text-sm opacity-70">
+                      Usage month: <span className="font-semibold">{formatUsageMonthAU(usage.month)}</span>
+                    </p>
+                  ) : (
+                    <p className="text-sm opacity-70">
+                      Usage not available yet (check that <span className="font-semibold">/usage/me</span> is deployed).
+                    </p>
+                  )}
                 </div>
-
-                {!user ? null : usageBusy ? (
-                  <p className="text-sm opacity-70">Refreshing usage…</p>
-                ) : usage ? (
-                  <p className="text-sm opacity-70">
-                    Usage month: <span className="font-semibold">{formatUsageMonthAU(usage.month)}</span>
-                  </p>
-                ) : (
-                  <p className="text-sm opacity-70">
-                    Usage not available yet (check that <span className="font-semibold">/usage/me</span> is deployed).
-                  </p>
-                )}
               </div>
             </div>
-          </div>
 
-          <div className="space-y-4">
-            <div className="flex items-end justify-between gap-4 flex-wrap">
-              <div>
-                <h3 className="text-2xl font-bold">Plans</h3>
-                <p className="opacity-80 text-sm">
-                  Upgrade for AI Review. You can change or cancel any time via the Stripe Customer Portal.
-                </p>
+            <div className="space-y-4">
+              <div className="flex items-end justify-between gap-4 flex-wrap">
+                <div>
+                  <h3 className="text-2xl font-bold">Plans</h3>
+                  <p className="opacity-80 text-sm">
+                    Upgrade for AI Review. You can change or cancel any time via the Stripe Customer Portal.
+                  </p>
+                </div>
+                {user && <div className="badge badge-primary badge-outline">Current: {planLabel(currentPlan)}</div>}
               </div>
-              {user && <div className="badge badge-primary badge-outline">Current: {planLabel(currentPlan)}</div>}
-            </div>
 
-            <div className="grid md:grid-cols-2 xl:grid-cols-4 gap-4">
-              {plans.map((p) => {
-                const active = currentPlan === p.key;
-                return (
-                  <div key={p.key} className={planCardClass(active)}>
-                    <div className="card-body flex flex-col">
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <div className="text-xl font-bold">{p.title}</div>
-                          <div className="text-sm opacity-70">{p.subtitle}</div>
+              <div className="grid md:grid-cols-2 xl:grid-cols-4 gap-4">
+                {plans.map((p) => {
+                  const active = currentPlan === p.key;
+                  return (
+                    <div key={p.key} className={planCardClass(active)}>
+                      <div className="card-body flex flex-col">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <div className="text-xl font-bold">{p.title}</div>
+                            <div className="text-sm opacity-70">{p.subtitle}</div>
+                          </div>
+                          {active && <div className="badge badge-primary">Current</div>}
                         </div>
-                        {active && <div className="badge badge-primary">Current</div>}
-                      </div>
 
-                      <div className="mt-2 text-sm opacity-80 min-h-[24px]">
-                        <span className="font-semibold">{p.priceLabel}</span>
-                        {p.key !== "free" ? <span className="opacity-70"> / month</span> : null}
-                      </div>
+                        <div className="mt-2 text-sm opacity-80 min-h-[24px]">
+                          <span className="font-semibold">{p.priceLabel}</span>
+                          {p.key !== "free" ? <span className="opacity-70"> / month</span> : null}
+                        </div>
 
-                      <div className="mt-3 flex-1">
-                        <ul className="text-sm opacity-80 space-y-1 list-disc list-inside">
-                          {p.features.map((f) => (
-                            <li key={f}>{f}</li>
-                          ))}
-                        </ul>
-                      </div>
+                        <div className="mt-3 flex-1">
+                          <ul className="text-sm opacity-80 space-y-1 list-disc list-inside">
+                            {p.features.map((f) => (
+                              <li key={f}>{f}</li>
+                            ))}
+                          </ul>
+                        </div>
 
-                      <div className="mt-4">
-                        <PlanAction planKey={p.key} />
+                        <div className="mt-4">
+                          <PlanAction planKey={p.key} />
+                        </div>
                       </div>
                     </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* ✅ explicit cancel hint (without changing Stripe/auth logic) */}
-            {user && currentPlan !== "free" && (
-              <div className="rounded-2xl border border-base-300 bg-base-200/40 p-4">
-                <div className="font-semibold">Cancel subscription</div>
-                <div className="text-sm opacity-80 mt-1">
-                  To cancel, open <span className="font-semibold">Manage / cancel subscription</span> above. Stripe will
-                  handle cancellation and billing. After cancellation, your plan will revert to{" "}
-                  <span className="font-semibold">Free</span> at the end of your billing period.
-                </div>
+                  );
+                })}
               </div>
-            )}
+
+              {/* ✅ explicit cancel hint (without changing Stripe/auth logic) */}
+              {user && currentPlan !== "free" && (
+                <div className="rounded-2xl border border-base-300 bg-base-200/40 p-4">
+                  <div className="font-semibold">Cancel subscription</div>
+                  <div className="text-sm opacity-80 mt-1">
+                    To cancel, open <span className="font-semibold">Manage / cancel subscription</span> above. Stripe will
+                    handle cancellation and billing. After cancellation, your plan will revert to{" "}
+                    <span className="font-semibold">Free</span> at the end of your billing period.
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
-        </div>
-      </section>
-    </div>
+        </section>
+      </div>
+    </>
   );
 }

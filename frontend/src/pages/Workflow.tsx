@@ -3,6 +3,8 @@ import React from "react";
 import UploadBox from "../components/UploadBox";
 import { meCached } from "../auth";
 import { apiFetch } from "../api";
+import Seo from "../components/Seo";
+
 
 const NOTION_TEMPLATE_URL =
   "https://n2a-template.notion.site/N2A-Notion-Template-Read-Only-2eb54986383480a2b7b9c652a6893078";
@@ -1030,546 +1032,555 @@ export default function Workflow() {
 
   // ---------- UI ----------
   return (
-    <div className="-mx-4 md:-mx-6 lg:-mx-8">
-      {/* HEADER BAND */}
-      <section className="px-4 md:px-6 lg:px-8 py-10 md:py-12 bg-base-100">
-        <div className="max-w-6xl mx-auto text-center space-y-3">
-          <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight">
-            Workflow: <span className="text-primary">Upload</span> → Parse → Review → Export
-          </h1>
-          <p className="opacity-75 max-w-2xl mx-auto">
-            Parse locally, edit freely, export clean <span className="font-semibold">TSV (HTML)</span> for Anki. AI review
-            is available on paid plans.
-          </p>
+    <>
+      <Seo
+        title="Workflow"
+        description="Upload a Notion Markdown export, parse into cards, review, and export for Anki. Optional AI review on paid plans."
+        canonicalPath="/workflow"
+        noindex
+      />
 
-          <div className="flex justify-center pt-2">
-            <div className={["badge badge-lg", user ? "badge-primary badge-outline" : "badge-ghost"].join(" ")}>
-              {user ? `Logged in (${user.plan})` : "Guest mode"}
-            </div>
-          </div>
+      <div className="-mx-4 md:-mx-6 lg:-mx-8">
+        {/* HEADER BAND */}
+        <section className="px-4 md:px-6 lg:px-8 py-10 md:py-12 bg-base-100">
+          <div className="max-w-6xl mx-auto text-center space-y-3">
+            <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight">
+              Workflow: <span className="text-primary">Upload</span> → Parse → Review → Export
+            </h1>
+            <p className="opacity-75 max-w-2xl mx-auto">
+              Parse locally, edit freely, export clean <span className="font-semibold">TSV (HTML)</span> for Anki. AI review
+              is available on paid plans.
+            </p>
 
-          {user && projectId ? (
-            <div className="flex justify-center">
-              <div className="badge badge-outline">Project #{projectId}</div>
-            </div>
-          ) : null}
-        </div>
-      </section>
-
-      {/* UPLOAD + PARSE BAND */}
-      <section className="px-4 md:px-6 lg:px-8 py-10 md:py-12 bg-base-200">
-        <div className="max-w-6xl mx-auto">
-          <div className="flex flex-col lg:flex-row gap-6 items-stretch">
-            {/* LEFT: Upload */}
-            <div className="lg:w-[420px] w-full flex">
-              <div className="card bg-base-100 border border-base-300 rounded-2xl w-full h-full">
-                <div className="card-body space-y-4 h-full">
-                  <div>
-                    <h2 className="text-xl font-bold">1) Upload</h2>
-                    <p className="text-sm opacity-70">Drop your Notion export. We’ll parse it into cards.</p>
-                  </div>
-
-                  <UploadBox
-                    onFile={(t, n) => {
-                      setRaw(t);
-                      setFilename(n);
-
-                      setCards([]);
-                      setEditingIds(new Set());
-                      setStatus(null);
-                      setProjectId(null);
-                      setAiReviewedIds(new Set());
-                      setAiLoadingIds(new Set());
-                      setAiLastModeById({});
-                      setBatch({ running: false, total: 0, done: 0, errors: 0, mode: null, apply: false });
-                    }}
-                  />
-
-                  <div className="text-xs opacity-70">
-                    File: <span className="font-semibold">{filename || "None"}</span>
-                  </div>
-
-                  <div className="rounded-xl border border-base-300 bg-base-200/40 p-3">
-                    <div className="text-sm font-semibold">Need a template?</div>
-                    <div className="text-xs opacity-70 mt-1">
-                      Duplicate the Notion template to copy the exact formatting N2A expects (especially MCQ answers).
-                    </div>
-
-                    <div className="mt-3 flex flex-col sm:flex-row gap-2">
-                      <a
-                        className="btn btn-sm btn-outline"
-                        href={NOTION_TEMPLATE_URL}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
-                        Duplicate the Notion template
-                      </a>
-                    </div>
-                  </div>
-
-                  {status && (
-                    <div className="alert">
-                      <span>{status}</span>
-                    </div>
-                  )}
-
-                  {!user && (
-                    <div className="alert alert-info">
-                      <span>Guest mode works for parse/edit/export. Login to subscribe + AI.</span>
-                    </div>
-                  )}
-
-                  <div className="flex-1" />
-                </div>
+            <div className="flex justify-center pt-2">
+              <div className={["badge badge-lg", user ? "badge-primary badge-outline" : "badge-ghost"].join(" ")}>
+                {user ? `Logged in (${user.plan})` : "Guest mode"}
               </div>
             </div>
 
-            {/* RIGHT: Parse & Review */}
-            <div className="flex-1 flex">
-              <div className="card bg-base-100 border border-base-300 rounded-2xl w-full h-full">
-                <div className="card-body space-y-5 h-full">
-                  <div className="flex items-start justify-between gap-3 flex-wrap">
+            {user && projectId ? (
+              <div className="flex justify-center">
+                <div className="badge badge-outline">Project #{projectId}</div>
+              </div>
+            ) : null}
+          </div>
+        </section>
+
+        {/* UPLOAD + PARSE BAND */}
+        <section className="px-4 md:px-6 lg:px-8 py-10 md:py-12 bg-base-200">
+          <div className="max-w-6xl mx-auto">
+            <div className="flex flex-col lg:flex-row gap-6 items-stretch">
+              {/* LEFT: Upload */}
+              <div className="lg:w-[420px] w-full flex">
+                <div className="card bg-base-100 border border-base-300 rounded-2xl w-full h-full">
+                  <div className="card-body space-y-4 h-full">
                     <div>
-                      <h2 className="text-xl font-bold">2) Parse & Review</h2>
-                      <p className="text-sm opacity-70">
-                        {user
-                          ? "Parse creates a Project and saves cards for persistent AI review."
-                          : "Parse locally, edit, export. Login to persist + AI review."}
-                      </p>
+                      <h2 className="text-xl font-bold">1) Upload</h2>
+                      <p className="text-sm opacity-70">Drop your Notion export. We’ll parse it into cards.</p>
                     </div>
 
-                    <div className="flex flex-wrap gap-2">
-                      <div className="rounded-xl border border-base-300 bg-base-200/40 px-3 py-2 text-center">
-                        <div className="text-xs opacity-70">Total</div>
-                        <div className="text-xl font-extrabold text-primary leading-none">{parsedCount}</div>
+                    <UploadBox
+                      onFile={(t, n) => {
+                        setRaw(t);
+                        setFilename(n);
+
+                        setCards([]);
+                        setEditingIds(new Set());
+                        setStatus(null);
+                        setProjectId(null);
+                        setAiReviewedIds(new Set());
+                        setAiLoadingIds(new Set());
+                        setAiLastModeById({});
+                        setBatch({ running: false, total: 0, done: 0, errors: 0, mode: null, apply: false });
+                      }}
+                    />
+
+                    <div className="text-xs opacity-70">
+                      File: <span className="font-semibold">{filename || "None"}</span>
+                    </div>
+
+                    <div className="rounded-xl border border-base-300 bg-base-200/40 p-3">
+                      <div className="text-sm font-semibold">Need a template?</div>
+                      <div className="text-xs opacity-70 mt-1">
+                        Duplicate the Notion template to copy the exact formatting N2A expects (especially MCQ answers).
                       </div>
-                      <div className="rounded-xl border border-base-300 bg-base-200/40 px-3 py-2 text-center">
-                        <div className="text-xs opacity-70">Shown</div>
-                        <div className="text-xl font-extrabold text-primary leading-none">{filteredCount}</div>
+
+                      <div className="mt-3 flex flex-col sm:flex-row gap-2">
+                        <a
+                          className="btn btn-sm btn-outline"
+                          href={NOTION_TEMPLATE_URL}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          Duplicate the Notion template
+                        </a>
                       </div>
                     </div>
+
+                    {status && (
+                      <div className="alert">
+                        <span>{status}</span>
+                      </div>
+                    )}
+
+                    {!user && (
+                      <div className="alert alert-info">
+                        <span>Guest mode works for parse/edit/export. Login to subscribe + AI.</span>
+                      </div>
+                    )}
+
+                    <div className="flex-1" />
                   </div>
+                </div>
+              </div>
 
-                  {/* Controls row */}
-                  <div className="grid md:grid-cols-3 gap-3">
-                    <div className="rounded-2xl border border-base-300 bg-base-200/40 p-4 space-y-2">
-                      <div className="text-sm font-semibold">Filter</div>
-                      <div className="text-xs opacity-70">Show all cards or a subset.</div>
-                      <select
-                        className="select select-bordered w-full"
-                        value={filterMode}
-                        onChange={(e) => setFilterMode(e.target.value as FilterMode)}
-                      >
-                        <option value="all">All</option>
-                        <option value="qa">Q&A only</option>
-                        <option value="mcq">MCQ only</option>
-                      </select>
-                    </div>
-
-                    {/* ✅ MERGED MCQ FORMATTING CARD */}
-                    <div className="rounded-2xl border border-base-300 bg-base-200/40 p-4 space-y-3">
+              {/* RIGHT: Parse & Review */}
+              <div className="flex-1 flex">
+                <div className="card bg-base-100 border border-base-300 rounded-2xl w-full h-full">
+                  <div className="card-body space-y-5 h-full">
+                    <div className="flex items-start justify-between gap-3 flex-wrap">
                       <div>
-                        <div className="text-sm font-semibold">MCQ formatting</div>
-                        <div className="text-xs opacity-70">Affects preview/export and what AI sees.</div>
+                        <h2 className="text-xl font-bold">2) Parse & Review</h2>
+                        <p className="text-sm opacity-70">
+                          {user
+                            ? "Parse creates a Project and saves cards for persistent AI review."
+                            : "Parse locally, edit, export. Login to persist + AI review."}
+                        </p>
                       </div>
 
-                      <div className="space-y-1">
-                        <div className="text-xs font-semibold opacity-70">Option labels</div>
-                        <select
-                          className="select select-bordered w-full"
-                          value={mcqStyle}
-                          onChange={(e) => setMcqStyle(e.target.value as McqStyle)}
-                        >
-                          <option value="1)">1)</option>
-                          <option value="1.">1.</option>
-                          <option value="A)">A)</option>
-                          <option value="a)">a)</option>
-                          <option value="A.">A.</option>
-                          <option value="a.">a.</option>
-                        </select>
-                      </div>
-
-                      <div className="space-y-1">
-                        <div className="text-xs font-semibold opacity-70">Answer export</div>
-                        <select
-                          className="select select-bordered w-full"
-                          value={mcqAnswerMode}
-                          onChange={(e) => setMcqAnswerMode(e.target.value as McqAnswerMode)}
-                        >
-                          {/* ✅ Requested order */}
-                          <option value="default">Default (keep imported answer)</option>
-                          <option value="label_only">Label only (e.g. B)</option>
-                          <option value="option_only">Option only (e.g. Compton scatter)</option>
-                          <option value="label_plus_option">Label + option (e.g. B) Compton scatter)</option>
-                        </select>
-                        <div className="text-[11px] opacity-60">
-                          Default does not modify answers. Label-only will try to match a full-text answer to an option; if no match, it leaves the answer unchanged.
+                      <div className="flex flex-wrap gap-2">
+                        <div className="rounded-xl border border-base-300 bg-base-200/40 px-3 py-2 text-center">
+                          <div className="text-xs opacity-70">Total</div>
+                          <div className="text-xl font-extrabold text-primary leading-none">{parsedCount}</div>
+                        </div>
+                        <div className="rounded-xl border border-base-300 bg-base-200/40 px-3 py-2 text-center">
+                          <div className="text-xs opacity-70">Shown</div>
+                          <div className="text-xl font-extrabold text-primary leading-none">{filteredCount}</div>
                         </div>
                       </div>
                     </div>
 
-                    <div className="rounded-2xl border border-base-300 bg-base-200/40 p-4 space-y-2">
-                      <div className="text-sm font-semibold">AI English (paid)</div>
-                      <div className="text-xs opacity-70">Controls AI output style.</div>
-                      <select
-                        className="select select-bordered w-full"
-                        value={englishVariant}
-                        onChange={(e) => setEnglishVariant(e.target.value as EnglishVariant)}
-                        disabled={!canAI}
-                        title={!canAI ? "Requires a paid plan" : "Choose AI review English"}
-                      >
-                        <option value="uk_au">English (UK/AUS)</option>
-                        <option value="us">English (US)</option>
-                      </select>
-                      {!canAI && <div className="text-xs opacity-70">Subscribe in Account to enable this.</div>}
-                    </div>
-                  </div>
-
-                  {/* Primary buttons (single export button) */}
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    <button className="btn btn-primary w-full" disabled={!raw || busy} onClick={doParse}>
-                      Parse
-                    </button>
-
-                    <button className="btn btn-outline w-full" disabled={busy} onClick={clearAll}>
-                      Clear
-                    </button>
-
-                    <button
-                      className={exportBtnClass}
-                      disabled={!parsedCount || busy || (canApkg && !projectId)}
-                      title={
-                        canApkg && !projectId ? "Parse while logged in to create a Project before exporting APKG" : exportTitle
-                      }
-                      onClick={() => void exportByPlan()}
-                    >
-                      {exportLabel}
-                    </button>
-                  </div>
-
-                  {/* AI buttons */}
-                  <div className="space-y-3">
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                      <button
-                        className="btn btn-ghost w-full"
-                        disabled={!parsedCount || busy || !canAI}
-                        onClick={() => void aiReviewAll(false, "content")}
-                      >
-                        AI Content Review
-                      </button>
-                      <button
-                        className="btn btn-ghost w-full"
-                        disabled={!parsedCount || busy || !canAI}
-                        onClick={() => void aiReviewAll(false, "format")}
-                      >
-                        AI Format Review
-                      </button>
-                      <button
-                        className="btn btn-ghost w-full"
-                        disabled={!parsedCount || busy || !canAI}
-                        onClick={() => void aiReviewAll(false, "both")}
-                      >
-                        AI Content and Format Review
-                      </button>
-                    </div>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                      <button
-                        className="btn btn-outline w-full"
-                        disabled={!parsedCount || busy || !canAI}
-                        onClick={() => void aiReviewAll(true, "content")}
-                      >
-                        Apply Content Changes
-                      </button>
-                      <button
-                        className="btn btn-outline w-full"
-                        disabled={!parsedCount || busy || !canAI}
-                        onClick={() => void aiReviewAll(true, "format")}
-                      >
-                        Apply Format Changes
-                      </button>
-                      <button
-                        className="btn btn-outline w-full"
-                        disabled={!parsedCount || busy || !canAI}
-                        onClick={() => void aiReviewAll(true, "both")}
-                      >
-                        Apply Content and Format Changes
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="flex-1" />
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* CARDS BAND */}
-      <section className="px-4 md:px-6 lg:px-8 py-10 md:py-12 bg-base-100">
-        <div className="max-w-6xl mx-auto space-y-4">
-          <div className="flex items-end justify-between gap-3 flex-wrap">
-            <div>
-              <h2 className="text-2xl font-extrabold tracking-tight">
-                Cards <span className="text-primary">Preview</span>
-              </h2>
-              <p className="opacity-70 text-sm">
-                Preview is always shown. Click Edit to modify front/back. Delete removes the card from export.
-              </p>
-            </div>
-          </div>
-
-          {!filteredCards.length ? (
-            <div className="card bg-base-200/40 border border-base-300 rounded-2xl">
-              <div className="card-body text-center space-y-2">
-                <div className="text-lg font-semibold">No cards to show</div>
-                <div className="text-sm opacity-70">
-                  {cards.length ? "Try changing the Filter." : "Upload a Markdown export, then press Parse."}
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {filteredCards.map((c) => {
-                const isEditing = editingIds.has(c.id);
-                const isPersisted = /^\d+$/.test(c.id) && !!projectId;
-                const isAiLoading = aiLoadingIds.has(c.id);
-
-                const previewFront = c.card_type === "mcq" ? formatMcqOptions(c.front, mcqStyle) : c.front;
-
-                const previewBack =
-                  c.card_type === "mcq"
-                    ? expandMcqAnswerIfLabelOnly({
-                        cardFront: c.front,
-                        cardBack: c.back,
-                        style: mcqStyle,
-                        mode: mcqAnswerMode,
-                      })
-                    : c.back;
-
-                const hasAnyAiField =
-                  c.ai_changed !== undefined ||
-                  c.ai_flag !== undefined ||
-                  c.ai_feedback !== undefined ||
-                  c.ai_suggest_front !== undefined ||
-                  c.ai_suggest_back !== undefined;
-
-                const wasReviewedThisSession = aiReviewedIds.has(c.id);
-                const showAiPanel = hasAnyAiField || wasReviewedThisSession;
-
-                const changed = !!c.ai_changed;
-                const flag = c.ai_flag ?? null;
-                const feedback = (c.ai_feedback ?? "").trim();
-
-                const incorrect = isIncorrectFlag(flag);
-                const lastMode = aiLastModeById[c.id];
-                const formatContext = lastMode === "format" || isFormatFlag(flag);
-
-                const showDiff = changed && !incorrect && !formatContext;
-                const showPlainSuggested = changed && !incorrect && formatContext;
-
-                const disableApplyBecauseIncorrect = incorrect;
-
-                return (
-                  <div
-                    key={c.id}
-                    className="card bg-base-200/40 border border-base-300 rounded-2xl transition-all duration-200 hover:-translate-y-1 hover:border-primary/40 hover:bg-base-200"
-                  >
-                    <div className="card-body space-y-3">
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="badge badge-outline">{c.card_type.toUpperCase()}</div>
-
-                        <div className="flex gap-2 flex-wrap justify-end items-center">
-                          {isAiLoading && <span className="loading loading-spinner loading-xs text-primary" />}
-
-                          <button
-                            className="btn btn-xs btn-ghost"
-                            disabled={busy || !canAI || !isPersisted || isAiLoading}
-                            onClick={() => {
-                              setStatus("Running AI review (content)…");
-                              void aiReviewCard(c.id, false, "content")
-                                .then(() => setStatus("AI review complete."))
-                                .catch((e: any) =>
-                                  setStatus(e?.message ? `AI Review failed: ${e.message}` : "AI Review failed.")
-                                );
-                            }}
-                          >
-                            Review
-                          </button>
-
-                          <button
-                            className="btn btn-xs btn-ghost"
-                            disabled={busy || !canAI || !isPersisted || isAiLoading}
-                            onClick={() => {
-                              setStatus("Running AI review (format)…");
-                              void aiReviewCard(c.id, false, "format")
-                                .then(() => setStatus("AI review complete."))
-                                .catch((e: any) =>
-                                  setStatus(e?.message ? `AI Review failed: ${e.message}` : "AI Review failed.")
-                                );
-                            }}
-                          >
-                            Format
-                          </button>
-
-                          <button
-                            className="btn btn-xs btn-ghost"
-                            disabled={busy || !canAI || !isPersisted || isAiLoading || disableApplyBecauseIncorrect}
-                            title={disableApplyBecauseIncorrect ? "Cannot apply: card flagged as incorrect" : "Apply AI suggestions"}
-                            onClick={() => {
-                              setStatus("Applying AI (both)…");
-                              void aiReviewCard(c.id, true, "both")
-                                .then(() => setStatus("AI applied."))
-                                .catch((e: any) =>
-                                  setStatus(e?.message ? `AI Apply failed: ${e.message}` : "AI Apply failed.")
-                                );
-                            }}
-                          >
-                            Apply
-                          </button>
-
-                          <button
-                            className="btn btn-xs btn-ghost"
-                            disabled={busy || isAiLoading}
-                            onClick={() => toggleEdit(c.id)}
-                          >
-                            {isEditing ? "Close" : "Edit"}
-                          </button>
-
-                          <button
-                            className="btn btn-xs btn-ghost"
-                            disabled={busy || isAiLoading}
-                            onClick={() => void deleteCard(c.id)}
-                          >
-                            Delete
-                          </button>
-                        </div>
+                    {/* Controls row */}
+                    <div className="grid md:grid-cols-3 gap-3">
+                      <div className="rounded-2xl border border-base-300 bg-base-200/40 p-4 space-y-2">
+                        <div className="text-sm font-semibold">Filter</div>
+                        <div className="text-xs opacity-70">Show all cards or a subset.</div>
+                        <select
+                          className="select select-bordered w-full"
+                          value={filterMode}
+                          onChange={(e) => setFilterMode(e.target.value as FilterMode)}
+                        >
+                          <option value="all">All</option>
+                          <option value="qa">Q&A only</option>
+                          <option value="mcq">MCQ only</option>
+                        </select>
                       </div>
 
-                      {showAiPanel && (
-                        <div className="rounded-xl border border-base-300 bg-base-100/40 p-3 space-y-2">
-                          <div className="flex items-center justify-between">
-                            <div className="text-xs font-semibold opacity-70">AI result</div>
+                      {/* ✅ MERGED MCQ FORMATTING CARD */}
+                      <div className="rounded-2xl border border-base-300 bg-base-200/40 p-4 space-y-3">
+                        <div>
+                          <div className="text-sm font-semibold">MCQ formatting</div>
+                          <div className="text-xs opacity-70">Affects preview/export and what AI sees.</div>
+                        </div>
 
-                            <div className="flex gap-2 items-center">
-                              {incorrect ? (
-                                <span className="badge badge-sm badge-error">Incorrect</span>
-                              ) : formatContext && changed ? (
-                                <span className="badge badge-sm badge-info">Formatting updated</span>
-                              ) : (
-                                <span className={["badge badge-sm", changed ? "badge-warning" : "badge-success"].join(" ")}>
-                                  {changed ? "Changes suggested" : "Reviewed"}
-                                </span>
-                              )}
+                        <div className="space-y-1">
+                          <div className="text-xs font-semibold opacity-70">Option labels</div>
+                          <select
+                            className="select select-bordered w-full"
+                            value={mcqStyle}
+                            onChange={(e) => setMcqStyle(e.target.value as McqStyle)}
+                          >
+                            <option value="1)">1)</option>
+                            <option value="1.">1.</option>
+                            <option value="A)">A)</option>
+                            <option value="a)">a)</option>
+                            <option value="A.">A.</option>
+                            <option value="a.">a.</option>
+                          </select>
+                        </div>
 
-                              {flag ? <span className="badge badge-sm badge-outline">{flag}</span> : null}
-                            </div>
+                        <div className="space-y-1">
+                          <div className="text-xs font-semibold opacity-70">Answer export</div>
+                          <select
+                            className="select select-bordered w-full"
+                            value={mcqAnswerMode}
+                            onChange={(e) => setMcqAnswerMode(e.target.value as McqAnswerMode)}
+                          >
+                            {/* ✅ Requested order */}
+                            <option value="default">Default (keep imported answer)</option>
+                            <option value="label_only">Label only (e.g. B)</option>
+                            <option value="option_only">Option only (e.g. Compton scatter)</option>
+                            <option value="label_plus_option">Label + option (e.g. B) Compton scatter)</option>
+                          </select>
+                          <div className="text-[11px] opacity-60">
+                            Default does not modify answers. Label-only will try to match a full-text answer to an option; if no match, it leaves the answer unchanged.
                           </div>
+                        </div>
+                      </div>
 
-                          {incorrect ? (
-                            <div className="rounded-xl border border-error/30 bg-error/10 p-3">
-                              <div className="font-semibold text-error">This card appears incorrect.</div>
-                              <div className="text-sm opacity-80 mt-1 whitespace-pre-wrap">
-                                {feedback || "AI flagged the original answer as incorrect. No replacement answer is provided."}
-                              </div>
-                              <div className="text-xs opacity-70 mt-2">
-                                Tip: edit the card manually, then re-run AI review.
-                              </div>
-                            </div>
-                          ) : (
-                            <div className="text-sm whitespace-pre-wrap opacity-80">
-                              {feedback
-                                ? feedback
-                                : wasReviewedThisSession
-                                ? "AI ran successfully, but returned no feedback for this card."
-                                : "AI fields are empty for this card (no stored feedback)."}
-                            </div>
-                          )}
+                      <div className="rounded-2xl border border-base-300 bg-base-200/40 p-4 space-y-2">
+                        <div className="text-sm font-semibold">AI English (paid)</div>
+                        <div className="text-xs opacity-70">Controls AI output style.</div>
+                        <select
+                          className="select select-bordered w-full"
+                          value={englishVariant}
+                          onChange={(e) => setEnglishVariant(e.target.value as EnglishVariant)}
+                          disabled={!canAI}
+                          title={!canAI ? "Requires a paid plan" : "Choose AI review English"}
+                        >
+                          <option value="uk_au">English (UK/AUS)</option>
+                          <option value="us">English (US)</option>
+                        </select>
+                        {!canAI && <div className="text-xs opacity-70">Subscribe in Account to enable this.</div>}
+                      </div>
+                    </div>
 
-                          {!incorrect && changed && (c.ai_suggest_front || c.ai_suggest_back) && (
-                            <details className="collapse collapse-arrow border border-base-300 bg-base-200/40 rounded-xl">
-                              <summary className="collapse-title text-sm font-semibold">
-                                {showDiff ? "View suggested front/back (changes highlighted)" : "View suggested front/back"}
-                              </summary>
+                    {/* Primary buttons (single export button) */}
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <button className="btn btn-primary w-full" disabled={!raw || busy} onClick={doParse}>
+                        Parse
+                      </button>
 
-                              <div className="collapse-content space-y-4">
-                                {showPlainSuggested && (
-                                  <div className="text-xs opacity-70">
-                                    Formatting changed for clarity (spacing/bullets/structure). Content meaning is intended to be unchanged.
-                                  </div>
+                      <button className="btn btn-outline w-full" disabled={busy} onClick={clearAll}>
+                        Clear
+                      </button>
+
+                      <button
+                        className={exportBtnClass}
+                        disabled={!parsedCount || busy || (canApkg && !projectId)}
+                        title={
+                          canApkg && !projectId ? "Parse while logged in to create a Project before exporting APKG" : exportTitle
+                        }
+                        onClick={() => void exportByPlan()}
+                      >
+                        {exportLabel}
+                      </button>
+                    </div>
+
+                    {/* AI buttons */}
+                    <div className="space-y-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <button
+                          className="btn btn-ghost w-full"
+                          disabled={!parsedCount || busy || !canAI}
+                          onClick={() => void aiReviewAll(false, "content")}
+                        >
+                          AI Content Review
+                        </button>
+                        <button
+                          className="btn btn-ghost w-full"
+                          disabled={!parsedCount || busy || !canAI}
+                          onClick={() => void aiReviewAll(false, "format")}
+                        >
+                          AI Format Review
+                        </button>
+                        <button
+                          className="btn btn-ghost w-full"
+                          disabled={!parsedCount || busy || !canAI}
+                          onClick={() => void aiReviewAll(false, "both")}
+                        >
+                          AI Content and Format Review
+                        </button>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <button
+                          className="btn btn-outline w-full"
+                          disabled={!parsedCount || busy || !canAI}
+                          onClick={() => void aiReviewAll(true, "content")}
+                        >
+                          Apply Content Changes
+                        </button>
+                        <button
+                          className="btn btn-outline w-full"
+                          disabled={!parsedCount || busy || !canAI}
+                          onClick={() => void aiReviewAll(true, "format")}
+                        >
+                          Apply Format Changes
+                        </button>
+                        <button
+                          className="btn btn-outline w-full"
+                          disabled={!parsedCount || busy || !canAI}
+                          onClick={() => void aiReviewAll(true, "both")}
+                        >
+                          Apply Content and Format Changes
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="flex-1" />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* CARDS BAND */}
+        <section className="px-4 md:px-6 lg:px-8 py-10 md:py-12 bg-base-100">
+          <div className="max-w-6xl mx-auto space-y-4">
+            <div className="flex items-end justify-between gap-3 flex-wrap">
+              <div>
+                <h2 className="text-2xl font-extrabold tracking-tight">
+                  Cards <span className="text-primary">Preview</span>
+                </h2>
+                <p className="opacity-70 text-sm">
+                  Preview is always shown. Click Edit to modify front/back. Delete removes the card from export.
+                </p>
+              </div>
+            </div>
+
+            {!filteredCards.length ? (
+              <div className="card bg-base-200/40 border border-base-300 rounded-2xl">
+                <div className="card-body text-center space-y-2">
+                  <div className="text-lg font-semibold">No cards to show</div>
+                  <div className="text-sm opacity-70">
+                    {cards.length ? "Try changing the Filter." : "Upload a Markdown export, then press Parse."}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {filteredCards.map((c) => {
+                  const isEditing = editingIds.has(c.id);
+                  const isPersisted = /^\d+$/.test(c.id) && !!projectId;
+                  const isAiLoading = aiLoadingIds.has(c.id);
+
+                  const previewFront = c.card_type === "mcq" ? formatMcqOptions(c.front, mcqStyle) : c.front;
+
+                  const previewBack =
+                    c.card_type === "mcq"
+                      ? expandMcqAnswerIfLabelOnly({
+                          cardFront: c.front,
+                          cardBack: c.back,
+                          style: mcqStyle,
+                          mode: mcqAnswerMode,
+                        })
+                      : c.back;
+
+                  const hasAnyAiField =
+                    c.ai_changed !== undefined ||
+                    c.ai_flag !== undefined ||
+                    c.ai_feedback !== undefined ||
+                    c.ai_suggest_front !== undefined ||
+                    c.ai_suggest_back !== undefined;
+
+                  const wasReviewedThisSession = aiReviewedIds.has(c.id);
+                  const showAiPanel = hasAnyAiField || wasReviewedThisSession;
+
+                  const changed = !!c.ai_changed;
+                  const flag = c.ai_flag ?? null;
+                  const feedback = (c.ai_feedback ?? "").trim();
+
+                  const incorrect = isIncorrectFlag(flag);
+                  const lastMode = aiLastModeById[c.id];
+                  const formatContext = lastMode === "format" || isFormatFlag(flag);
+
+                  const showDiff = changed && !incorrect && !formatContext;
+                  const showPlainSuggested = changed && !incorrect && formatContext;
+
+                  const disableApplyBecauseIncorrect = incorrect;
+
+                  return (
+                    <div
+                      key={c.id}
+                      className="card bg-base-200/40 border border-base-300 rounded-2xl transition-all duration-200 hover:-translate-y-1 hover:border-primary/40 hover:bg-base-200"
+                    >
+                      <div className="card-body space-y-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="badge badge-outline">{c.card_type.toUpperCase()}</div>
+
+                          <div className="flex gap-2 flex-wrap justify-end items-center">
+                            {isAiLoading && <span className="loading loading-spinner loading-xs text-primary" />}
+
+                            <button
+                              className="btn btn-xs btn-ghost"
+                              disabled={busy || !canAI || !isPersisted || isAiLoading}
+                              onClick={() => {
+                                setStatus("Running AI review (content)…");
+                                void aiReviewCard(c.id, false, "content")
+                                  .then(() => setStatus("AI review complete."))
+                                  .catch((e: any) =>
+                                    setStatus(e?.message ? `AI Review failed: ${e.message}` : "AI Review failed.")
+                                  );
+                              }}
+                            >
+                              Review
+                            </button>
+
+                            <button
+                              className="btn btn-xs btn-ghost"
+                              disabled={busy || !canAI || !isPersisted || isAiLoading}
+                              onClick={() => {
+                                setStatus("Running AI review (format)…");
+                                void aiReviewCard(c.id, false, "format")
+                                  .then(() => setStatus("AI review complete."))
+                                  .catch((e: any) =>
+                                    setStatus(e?.message ? `AI Review failed: ${e.message}` : "AI Review failed.")
+                                  );
+                              }}
+                            >
+                              Format
+                            </button>
+
+                            <button
+                              className="btn btn-xs btn-ghost"
+                              disabled={busy || !canAI || !isPersisted || isAiLoading || disableApplyBecauseIncorrect}
+                              title={disableApplyBecauseIncorrect ? "Cannot apply: card flagged as incorrect" : "Apply AI suggestions"}
+                              onClick={() => {
+                                setStatus("Applying AI (both)…");
+                                void aiReviewCard(c.id, true, "both")
+                                  .then(() => setStatus("AI applied."))
+                                  .catch((e: any) =>
+                                    setStatus(e?.message ? `AI Apply failed: ${e.message}` : "AI Apply failed.")
+                                  );
+                              }}
+                            >
+                              Apply
+                            </button>
+
+                            <button
+                              className="btn btn-xs btn-ghost"
+                              disabled={busy || isAiLoading}
+                              onClick={() => toggleEdit(c.id)}
+                            >
+                              {isEditing ? "Close" : "Edit"}
+                            </button>
+
+                            <button
+                              className="btn btn-xs btn-ghost"
+                              disabled={busy || isAiLoading}
+                              onClick={() => void deleteCard(c.id)}
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        </div>
+
+                        {showAiPanel && (
+                          <div className="rounded-xl border border-base-300 bg-base-100/40 p-3 space-y-2">
+                            <div className="flex items-center justify-between">
+                              <div className="text-xs font-semibold opacity-70">AI result</div>
+
+                              <div className="flex gap-2 items-center">
+                                {incorrect ? (
+                                  <span className="badge badge-sm badge-error">Incorrect</span>
+                                ) : formatContext && changed ? (
+                                  <span className="badge badge-sm badge-info">Formatting updated</span>
+                                ) : (
+                                  <span className={["badge badge-sm", changed ? "badge-warning" : "badge-success"].join(" ")}>
+                                    {changed ? "Changes suggested" : "Reviewed"}
+                                  </span>
                                 )}
 
-                                <div className="space-y-2">
-                                  <div className="text-xs font-semibold opacity-70">Suggested front</div>
-                                  {showDiff ? (
-                                    <DiffBlock original={c.front} suggested={c.ai_suggest_front ?? ""} />
-                                  ) : (
-                                    <pre className="whitespace-pre-wrap text-sm leading-relaxed bg-base-100/40 border border-base-300 rounded-xl p-3">
-                                      {c.ai_suggest_front ?? ""}
-                                    </pre>
-                                  )}
-                                </div>
+                                {flag ? <span className="badge badge-sm badge-outline">{flag}</span> : null}
+                              </div>
+                            </div>
 
-                                <div className="space-y-2">
-                                  <div className="text-xs font-semibold opacity-70">Suggested back</div>
-                                  {showDiff ? (
-                                    <DiffBlock original={c.back} suggested={c.ai_suggest_back ?? ""} />
-                                  ) : (
-                                    <pre className="whitespace-pre-wrap text-sm leading-relaxed bg-base-100/40 border border-base-300 rounded-xl p-3">
-                                      {c.ai_suggest_back ?? ""}
-                                    </pre>
-                                  )}
+                            {incorrect ? (
+                              <div className="rounded-xl border border-error/30 bg-error/10 p-3">
+                                <div className="font-semibold text-error">This card appears incorrect.</div>
+                                <div className="text-sm opacity-80 mt-1 whitespace-pre-wrap">
+                                  {feedback || "AI flagged the original answer as incorrect. No replacement answer is provided."}
+                                </div>
+                                <div className="text-xs opacity-70 mt-2">
+                                  Tip: edit the card manually, then re-run AI review.
                                 </div>
                               </div>
-                            </details>
-                          )}
-                        </div>
-                      )}
+                            ) : (
+                              <div className="text-sm whitespace-pre-wrap opacity-80">
+                                {feedback
+                                  ? feedback
+                                  : wasReviewedThisSession
+                                  ? "AI ran successfully, but returned no feedback for this card."
+                                  : "AI fields are empty for this card (no stored feedback)."}
+                              </div>
+                            )}
 
-                      <div className="text-xs font-semibold opacity-70">Front (preview)</div>
-                      <pre className="whitespace-pre-wrap text-sm leading-relaxed bg-base-100/40 border border-base-300 rounded-xl p-3">
-                        {previewFront}
-                      </pre>
+                            {!incorrect && changed && (c.ai_suggest_front || c.ai_suggest_back) && (
+                              <details className="collapse collapse-arrow border border-base-300 bg-base-200/40 rounded-xl">
+                                <summary className="collapse-title text-sm font-semibold">
+                                  {showDiff ? "View suggested front/back (changes highlighted)" : "View suggested front/back"}
+                                </summary>
 
-                      <div className="text-xs font-semibold opacity-70">Back (preview)</div>
-                      <pre className="whitespace-pre-wrap text-sm leading-relaxed bg-base-100/40 border border-base-300 rounded-xl p-3">
-                        {previewBack}
-                      </pre>
+                                <div className="collapse-content space-y-4">
+                                  {showPlainSuggested && (
+                                    <div className="text-xs opacity-70">
+                                      Formatting changed for clarity (spacing/bullets/structure). Content meaning is intended to be unchanged.
+                                    </div>
+                                  )}
 
-                      {isEditing && (
-                        <div className="rounded-2xl border border-base-300 bg-base-100/50 p-3 space-y-3">
-                          <div className="text-xs font-semibold opacity-70">Front (edit)</div>
-                          <textarea
-                            className="textarea textarea-bordered w-full min-h-[96px] text-sm leading-relaxed"
-                            value={c.front}
-                            onChange={(e) => {
-                              const nextFront = e.target.value;
-                              updateCardLocal(c.id, { front: nextFront });
-                              void persistCardEditIfPossible(c.id, nextFront, c.back);
-                            }}
-                          />
+                                  <div className="space-y-2">
+                                    <div className="text-xs font-semibold opacity-70">Suggested front</div>
+                                    {showDiff ? (
+                                      <DiffBlock original={c.front} suggested={c.ai_suggest_front ?? ""} />
+                                    ) : (
+                                      <pre className="whitespace-pre-wrap text-sm leading-relaxed bg-base-100/40 border border-base-300 rounded-xl p-3">
+                                        {c.ai_suggest_front ?? ""}
+                                      </pre>
+                                    )}
+                                  </div>
 
-                          <div className="text-xs font-semibold opacity-70">Back (edit)</div>
-                          <textarea
-                            className="textarea textarea-bordered w-full min-h-[96px] text-sm leading-relaxed"
-                            value={c.back}
-                            onChange={(e) => {
-                              const nextBack = e.target.value;
-                              updateCardLocal(c.id, { back: nextBack });
-                              void persistCardEditIfPossible(c.id, c.front, nextBack);
-                            }}
-                          />
-                        </div>
-                      )}
+                                  <div className="space-y-2">
+                                    <div className="text-xs font-semibold opacity-70">Suggested back</div>
+                                    {showDiff ? (
+                                      <DiffBlock original={c.back} suggested={c.ai_suggest_back ?? ""} />
+                                    ) : (
+                                      <pre className="whitespace-pre-wrap text-sm leading-relaxed bg-base-100/40 border border-base-300 rounded-xl p-3">
+                                        {c.ai_suggest_back ?? ""}
+                                      </pre>
+                                    )}
+                                  </div>
+                                </div>
+                              </details>
+                            )}
+                          </div>
+                        )}
+
+                        <div className="text-xs font-semibold opacity-70">Front (preview)</div>
+                        <pre className="whitespace-pre-wrap text-sm leading-relaxed bg-base-100/40 border border-base-300 rounded-xl p-3">
+                          {previewFront}
+                        </pre>
+
+                        <div className="text-xs font-semibold opacity-70">Back (preview)</div>
+                        <pre className="whitespace-pre-wrap text-sm leading-relaxed bg-base-100/40 border border-base-300 rounded-xl p-3">
+                          {previewBack}
+                        </pre>
+
+                        {isEditing && (
+                          <div className="rounded-2xl border border-base-300 bg-base-100/50 p-3 space-y-3">
+                            <div className="text-xs font-semibold opacity-70">Front (edit)</div>
+                            <textarea
+                              className="textarea textarea-bordered w-full min-h-[96px] text-sm leading-relaxed"
+                              value={c.front}
+                              onChange={(e) => {
+                                const nextFront = e.target.value;
+                                updateCardLocal(c.id, { front: nextFront });
+                                void persistCardEditIfPossible(c.id, nextFront, c.back);
+                              }}
+                            />
+
+                            <div className="text-xs font-semibold opacity-70">Back (edit)</div>
+                            <textarea
+                              className="textarea textarea-bordered w-full min-h-[96px] text-sm leading-relaxed"
+                              value={c.back}
+                              onChange={(e) => {
+                                const nextBack = e.target.value;
+                                updateCardLocal(c.id, { back: nextBack });
+                                void persistCardEditIfPossible(c.id, c.front, nextBack);
+                              }}
+                            />
+                          </div>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      </section>
-    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </section>
+      </div>
+    </>
   );
 }
