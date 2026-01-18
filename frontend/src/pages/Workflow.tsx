@@ -240,18 +240,46 @@ function formatMcqOptions(front: string, style: McqStyle): string {
   return [stem, ...rebuilt].join("\n");
 }
 
+/**
+ * ✅ FIXED: Only rewrite MCQ answer if it really looks like a label (A/B/C or 1/2/3)
+ * Prevents "Photoelectric effect" -> "16) hotoelectric effect"
+ */
 function formatMcqAnswer(back: string, style: McqStyle): string {
-  const raw = (back || "").trim();
-  if (!raw) return raw;
+  const raw0 = (back || "").trim();
+  if (!raw0) return raw0;
 
-  const m = raw.match(/^(\s*(answer:\s*)?)\s*([A-Za-z]|\d+)[\)\.\:]?\s*(.*)$/i);
-  if (!m) return raw;
+  // strip optional "Answer:" prefix
+  const raw = raw0.replace(/^answer:\s*/i, "").trim();
+  if (!raw) return raw0;
 
-  const token = m[3];
-  const rest = (m[4] || "").trim();
+  // Match: token + optional delimiter + optional rest
+  const m = raw.match(/^([A-Za-z]|\d+)\s*([)\.:])?\s*(.*)$/);
+  if (!m) return raw0;
+
+  const token = m[1];
+  const delim = m[2] || "";
+  const rest = (m[3] || "").trim();
 
   const isNum = /^\d+$/.test(token);
-  const idx = isNum ? Math.max(parseInt(token, 10) - 1, 0) : token.toUpperCase().charCodeAt(0) - "A".charCodeAt(0);
+  const isLetter = /^[A-Za-z]$/.test(token);
+
+  // If it's a letter with no delimiter and the rest looks like a word continuation, do nothing.
+  // Example: "Photoelectric effect" matches token=P, rest="hotoelectric effect"
+  if (isLetter) {
+    const restStartsLower = rest.length > 0 && /^[a-z]/.test(rest);
+    const looksLikeWordContinuation = !delim && restStartsLower;
+    if (looksLikeWordContinuation) return raw0;
+  }
+
+  // Similar safety for numerals: avoid "2 diabetes" becoming "2) diabetes"
+  if (isNum && !delim && rest) {
+    const restStartsLower = /^[a-z]/.test(rest);
+    if (restStartsLower) return raw0;
+  }
+
+  const idx = isNum
+    ? Math.max(parseInt(token, 10) - 1, 0)
+    : token.toUpperCase().charCodeAt(0) - "A".charCodeAt(0);
 
   const n = idx + 1;
   const A = String.fromCharCode("A".charCodeAt(0) + idx);
@@ -340,7 +368,7 @@ async function downloadApkg(projectId: number) {
     }
   }
 
-  // ✅ Guard: if we accidentally hit the frontend, it will return HTML
+  // Guard: if we accidentally hit the frontend, it will return HTML
   const ct = (resp.headers.get("content-type") || "").toLowerCase();
   if (ct.includes("text/html")) {
     const text = await resp.text();
@@ -354,7 +382,6 @@ async function downloadApkg(projectId: number) {
   const head = new Uint8Array(await blob.slice(0, 2).arrayBuffer());
   const looksZip = head.length === 2 && head[0] === 0x50 && head[1] === 0x4b; // "PK"
   if (!looksZip) {
-    // try to decode as text for debugging
     try {
       const text = await blob.text();
       throw new Error(`APKG export did not look like a zip. First 120 chars: ${text.slice(0, 120)}`);
@@ -841,7 +868,7 @@ export default function Workflow() {
 
   const progressPct = batch.total ? Math.round((batch.done / batch.total) * 100) : 0;
 
-  // ✅ Full-page overlay ONLY for AI Review ALL
+  // Full-page overlay ONLY for AI Review ALL
   if (batch.running) {
     return (
       <div className="fixed inset-0 z-[1000] bg-base-100/90 backdrop-blur flex items-center justify-center px-6">
@@ -865,6 +892,7 @@ export default function Workflow() {
     );
   }
 
+  // ---------- UI ----------
   return (
     <div className="-mx-4 md:-mx-6 lg:-mx-8">
       {/* HEADER BAND */}
@@ -874,8 +902,8 @@ export default function Workflow() {
             Workflow: <span className="text-primary">Upload</span> → Parse → Review → Export
           </h1>
           <p className="opacity-75 max-w-2xl mx-auto">
-            Parse locally, edit freely, export clean <span className="font-semibold">TSV (HTML)</span> for Anki. AI
-            review is available on paid plans.
+            Parse locally, edit freely, export clean <span className="font-semibold">TSV (HTML)</span> for Anki. AI review
+            is available on paid plans.
           </p>
 
           <div className="flex justify-center pt-2">
@@ -1049,11 +1077,7 @@ export default function Workflow() {
                     <button
                       className={exportBtnClass}
                       disabled={!parsedCount || busy || (canApkg && !projectId)}
-                      title={
-                        canApkg && !projectId
-                          ? "Parse while logged in to create a Project before exporting APKG"
-                          : exportTitle
-                      }
+                      title={canApkg && !projectId ? "Parse while logged in to create a Project before exporting APKG" : exportTitle}
                       onClick={() => void exportByPlan()}
                     >
                       {exportLabel}
@@ -1137,9 +1161,7 @@ export default function Workflow() {
             <div className="card bg-base-200/40 border border-base-300 rounded-2xl">
               <div className="card-body text-center space-y-2">
                 <div className="text-lg font-semibold">No cards to show</div>
-                <div className="text-sm opacity-70">
-                  {cards.length ? "Try changing the Filter." : "Upload a Markdown export, then press Parse."}
-                </div>
+                <div className="text-sm opacity-70">{cards.length ? "Try changing the Filter." : "Upload a Markdown export, then press Parse."}</div>
               </div>
             </div>
           ) : (
@@ -1170,7 +1192,7 @@ export default function Workflow() {
                 const lastMode = aiLastModeById[c.id];
                 const formatContext = lastMode === "format" || isFormatFlag(flag);
 
-                // Only show line-by-line diff if this is content/both review (or flagged as content-ish) AND changed
+                // Only show line-by-line diff if this is content/both review AND changed
                 const showDiff = changed && !incorrect && !formatContext;
 
                 // For format-only: show suggested text, but not diff
@@ -1197,9 +1219,7 @@ export default function Workflow() {
                               setStatus("Running AI review (content)…");
                               void aiReviewCard(c.id, false, "content")
                                 .then(() => setStatus("AI review complete."))
-                                .catch((e: any) =>
-                                  setStatus(e?.message ? `AI Review failed: ${e.message}` : "AI Review failed.")
-                                );
+                                .catch((e: any) => setStatus(e?.message ? `AI Review failed: ${e.message}` : "AI Review failed."));
                             }}
                           >
                             Review
@@ -1212,9 +1232,7 @@ export default function Workflow() {
                               setStatus("Running AI review (format)…");
                               void aiReviewCard(c.id, false, "format")
                                 .then(() => setStatus("AI review complete."))
-                                .catch((e: any) =>
-                                  setStatus(e?.message ? `AI Review failed: ${e.message}` : "AI Review failed.")
-                                );
+                                .catch((e: any) => setStatus(e?.message ? `AI Review failed: ${e.message}` : "AI Review failed."));
                             }}
                           >
                             Format
@@ -1223,16 +1241,12 @@ export default function Workflow() {
                           <button
                             className="btn btn-xs btn-ghost"
                             disabled={busy || !canAI || !isPersisted || isAiLoading || disableApplyBecauseIncorrect}
-                            title={
-                              disableApplyBecauseIncorrect ? "Cannot apply: card flagged as incorrect" : "Apply AI suggestions"
-                            }
+                            title={disableApplyBecauseIncorrect ? "Cannot apply: card flagged as incorrect" : "Apply AI suggestions"}
                             onClick={() => {
                               setStatus("Applying AI (both)…");
                               void aiReviewCard(c.id, true, "both")
                                 .then(() => setStatus("AI applied."))
-                                .catch((e: any) =>
-                                  setStatus(e?.message ? `AI Apply failed: ${e.message}` : "AI Apply failed.")
-                                );
+                                .catch((e: any) => setStatus(e?.message ? `AI Apply failed: ${e.message}` : "AI Apply failed."));
                             }}
                           >
                             Apply
