@@ -1,6 +1,5 @@
 // src/pages/Workflow.tsx
 import React from "react";
-import { Link } from "react-router-dom";
 import UploadBox from "../components/UploadBox";
 import { meCached } from "../auth";
 import { apiFetch } from "../api";
@@ -81,9 +80,12 @@ function DiffBlock({ original, suggested }: { original: string; suggested: strin
             );
           }
           return (
-            <div key={idx} className="rounded px-1 py-[1px] bg-error/10 border border-error/20 line-through text-error/80">
+            <div
+              key={idx}
+              className="rounded px-1 py-[1px] bg-error/10 border border-error/20 line-through text-error/80"
+            >
               <span className="font-mono opacity-70">− </span>
-                {d.text}
+              {d.text}
             </div>
           );
         })}
@@ -296,14 +298,9 @@ function isFormatFlag(flag: string | null | undefined) {
   return f.startsWith("format_") || f === "format_changed" || f === "format_ok";
 }
 
-/* ------------------------------ */
-/* ✅ NEW: Anki-friendly TSV export */
-/* - Preserves line breaks/bullets via HTML */
-/* - Uses tab-separated values (best for Anki import) */
-/* ------------------------------ */
-
+// --- TSV + HTML helpers (for Anki import) ---
 function escapeHtml(s: string) {
-  return (s ?? "")
+  return String(s ?? "")
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
@@ -311,95 +308,10 @@ function escapeHtml(s: string) {
     .replaceAll("'", "&#39;");
 }
 
-/**
- * Convert plain text into Anki-friendly HTML.
- *
- * Behavior:
- * - Preserve blank lines as paragraph breaks.
- * - If explicit bullets exist (-/*/•) → <ul>
- * - If explicit numbering exists (1., 2., ...) → <ol>
- * - If a block is multi-line without bullets/numbering:
- *   treat first line as sentence and rest as bullets (looks great in Anki).
- */
-function toAnkiHtml(input: string) {
-  const text = (input ?? "").replaceAll("\r\n", "\n").replaceAll("\r", "\n").trimEnd();
-  if (!text) return "";
-
-  const lines = text.split("\n");
-
-  // Split into blocks separated by blank lines
-  const blocks: string[][] = [];
-  let cur: string[] = [];
-  for (const ln of lines) {
-    if (ln.trim() === "") {
-      if (cur.length) blocks.push(cur);
-      cur = [];
-    } else {
-      cur.push(ln.trimEnd());
-    }
-  }
-  if (cur.length) blocks.push(cur);
-
-  const htmlBlocks: string[] = [];
-
-  const isBullet = (l: string) => /^(\s*[-*•])\s+/.test(l.trim());
-  const isNumbered = (l: string) => /^\s*\d+\.\s+/.test(l.trim());
-
-  for (const block of blocks) {
-    const b = block.filter((x) => x.trim() !== "");
-    if (!b.length) continue;
-
-    // pure bullet block
-    if (b.every((l) => isBullet(l))) {
-      const items = b.map((l) => l.trim().replace(/^[-*•]\s+/, ""));
-      htmlBlocks.push(`<ul>${items.map((it) => `<li>${escapeHtml(it)}</li>`).join("")}</ul>`);
-      continue;
-    }
-
-    // pure numbered block
-    if (b.every((l) => isNumbered(l))) {
-      const items = b.map((l) => l.trim().replace(/^\d+\.\s+/, ""));
-      htmlBlocks.push(`<ol>${items.map((it) => `<li>${escapeHtml(it)}</li>`).join("")}</ol>`);
-      continue;
-    }
-
-    // sentence then bullet block
-    if (b.length >= 2 && b.slice(1).every((l) => isBullet(l))) {
-      const head = escapeHtml(b[0].trim());
-      const items = b.slice(1).map((l) => l.trim().replace(/^[-*•]\s+/, ""));
-      htmlBlocks.push(`${head}<br><ul>${items.map((it) => `<li>${escapeHtml(it)}</li>`).join("")}</ul>`);
-      continue;
-    }
-
-    // sentence then numbered block
-    if (b.length >= 2 && b.slice(1).every((l) => isNumbered(l))) {
-      const head = escapeHtml(b[0].trim());
-      const items = b.slice(1).map((l) => l.trim().replace(/^\d+\.\s+/, ""));
-      htmlBlocks.push(`${head}<br><ol>${items.map((it) => `<li>${escapeHtml(it)}</li>`).join("")}</ol>`);
-      continue;
-    }
-
-    // default: sentence + bullets (for multi-line blocks)
-    if (b.length >= 2) {
-      const head = escapeHtml(b[0].trim());
-      const rest = b
-        .slice(1)
-        .map((x) => x.trim())
-        .filter(Boolean);
-
-      if (rest.length) {
-        htmlBlocks.push(`${head}<br><ul>${rest.map((it) => `<li>${escapeHtml(it)}</li>`).join("")}</ul>`);
-      } else {
-        htmlBlocks.push(head);
-      }
-      continue;
-    }
-
-    // single line
-    htmlBlocks.push(escapeHtml(b[0].trim()));
-  }
-
-  return htmlBlocks.join("<br><br>");
+function fieldToHtml(field: string) {
+  // Make content tab-safe, HTML-safe, and preserve newlines in Anki via <br>.
+  const noTabs = String(field ?? "").replaceAll("\t", "    ");
+  return escapeHtml(noTabs).replace(/(?:\r\n|\r|\n)/g, "<br>");
 }
 
 export default function Workflow() {
@@ -648,22 +560,16 @@ export default function Workflow() {
     }
   }
 
-  // ✅ NEW: Export TSV (Anki-friendly HTML for bullets/line breaks)
+  // ✅ Export as TSV with HTML formatting for Anki (newline -> <br>)
   function exportTSV() {
     const exportedCards = cards.map((c) =>
-      c.card_type === "mcq" ? { ...c, front: formatMcqOptions(c.front, mcqStyle), back: formatMcqAnswer(c.back, mcqStyle) } : c
+      c.card_type === "mcq"
+        ? { ...c, front: formatMcqOptions(c.front, mcqStyle), back: formatMcqAnswer(c.back, mcqStyle) }
+        : c
     );
 
-    const rows: string[] = [];
-    rows.push(["Front", "Back"].join("\t"));
-
-    for (const c of exportedCards) {
-      const frontHtml = toAnkiHtml(c.front).replaceAll("\t", "    ");
-      const backHtml = toAnkiHtml(c.back).replaceAll("\t", "    ");
-      rows.push(`${frontHtml}\t${backHtml}`);
-    }
-
-    const tsv = rows.join("\n");
+    // No header row (prevents importing an extra card).
+    const tsv = exportedCards.map((c) => `${fieldToHtml(c.front)}\t${fieldToHtml(c.back)}`).join("\n");
 
     const blob = new Blob([tsv], { type: "text/tab-separated-values;charset=utf-8" });
     const url = URL.createObjectURL(blob);
@@ -862,7 +768,8 @@ export default function Workflow() {
             Workflow: <span className="text-primary">Upload</span> → Parse → Review → Export
           </h1>
           <p className="opacity-75 max-w-2xl mx-auto">
-            Parse locally, edit freely, export clean TSV for Anki. AI review is available on paid plans.
+            Parse locally, edit freely, export clean <span className="font-semibold">TSV (HTML)</span> for Anki. AI
+            review is available on paid plans.
           </p>
 
           <div className="flex justify-center pt-2">
@@ -912,7 +819,6 @@ export default function Workflow() {
                     File: <span className="font-semibold">{filename || "None"}</span>
                   </div>
 
-                  {/* Smart hint */}
                   <div className="rounded-xl border border-base-300 bg-base-200/40 p-3">
                     <div className="text-sm font-semibold">Need a template?</div>
                     <div className="text-xs opacity-70 mt-1">
@@ -920,7 +826,12 @@ export default function Workflow() {
                     </div>
 
                     <div className="mt-3 flex flex-col sm:flex-row gap-2">
-                      <a className="btn btn-sm btn-outline" href={NOTION_TEMPLATE_URL} target="_blank" rel="noopener noreferrer">
+                      <a
+                        className="btn btn-sm btn-outline"
+                        href={NOTION_TEMPLATE_URL}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
                         Duplicate the Notion template
                       </a>
                     </div>
@@ -951,7 +862,9 @@ export default function Workflow() {
                     <div>
                       <h2 className="text-xl font-bold">2) Parse & Review</h2>
                       <p className="text-sm opacity-70">
-                        {user ? "Parse creates a Project and saves cards for persistent AI review." : "Parse locally, edit, export. Login to persist + AI review."}
+                        {user
+                          ? "Parse creates a Project and saves cards for persistent AI review."
+                          : "Parse locally, edit, export. Login to persist + AI review."}
                       </p>
                     </div>
 
@@ -972,7 +885,11 @@ export default function Workflow() {
                     <div className="rounded-2xl border border-base-300 bg-base-200/40 p-4 space-y-2">
                       <div className="text-sm font-semibold">Filter</div>
                       <div className="text-xs opacity-70">Show all cards or a subset.</div>
-                      <select className="select select-bordered w-full" value={filterMode} onChange={(e) => setFilterMode(e.target.value as FilterMode)}>
+                      <select
+                        className="select select-bordered w-full"
+                        value={filterMode}
+                        onChange={(e) => setFilterMode(e.target.value as FilterMode)}
+                      >
                         <option value="all">All</option>
                         <option value="qa">Q&A only</option>
                         <option value="mcq">MCQ only</option>
@@ -982,7 +899,11 @@ export default function Workflow() {
                     <div className="rounded-2xl border border-base-300 bg-base-200/40 p-4 space-y-2">
                       <div className="text-sm font-semibold">MCQ option style</div>
                       <div className="text-xs opacity-70">Affects preview/export and what AI sees.</div>
-                      <select className="select select-bordered w-full" value={mcqStyle} onChange={(e) => setMcqStyle(e.target.value as McqStyle)}>
+                      <select
+                        className="select select-bordered w-full"
+                        value={mcqStyle}
+                        onChange={(e) => setMcqStyle(e.target.value as McqStyle)}
+                      >
                         <option value="1)">1)</option>
                         <option value="1.">1.</option>
                         <option value="A)">A)</option>
@@ -1018,32 +939,56 @@ export default function Workflow() {
                       Clear
                     </button>
                     <button className="btn btn-secondary w-full" disabled={!parsedCount || busy} onClick={exportTSV}>
-                      Export TSV (Anki)
+                      Export TSV
                     </button>
                   </div>
 
                   {/* AI buttons */}
                   <div className="space-y-3">
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                      <button className="btn btn-ghost w-full" disabled={!parsedCount || busy || !canAI} onClick={() => void aiReviewAll(false, "content")}>
+                      <button
+                        className="btn btn-ghost w-full"
+                        disabled={!parsedCount || busy || !canAI}
+                        onClick={() => void aiReviewAll(false, "content")}
+                      >
                         AI Content Review
                       </button>
-                      <button className="btn btn-ghost w-full" disabled={!parsedCount || busy || !canAI} onClick={() => void aiReviewAll(false, "format")}>
+                      <button
+                        className="btn btn-ghost w-full"
+                        disabled={!parsedCount || busy || !canAI}
+                        onClick={() => void aiReviewAll(false, "format")}
+                      >
                         AI Format Review
                       </button>
-                      <button className="btn btn-ghost w-full" disabled={!parsedCount || busy || !canAI} onClick={() => void aiReviewAll(false, "both")}>
+                      <button
+                        className="btn btn-ghost w-full"
+                        disabled={!parsedCount || busy || !canAI}
+                        onClick={() => void aiReviewAll(false, "both")}
+                      >
                         AI Content and Format Review
                       </button>
                     </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                      <button className="btn btn-outline w-full" disabled={!parsedCount || busy || !canAI} onClick={() => void aiReviewAll(true, "content")}>
+                      <button
+                        className="btn btn-outline w-full"
+                        disabled={!parsedCount || busy || !canAI}
+                        onClick={() => void aiReviewAll(true, "content")}
+                      >
                         Apply Content Changes
                       </button>
-                      <button className="btn btn-outline w-full" disabled={!parsedCount || busy || !canAI} onClick={() => void aiReviewAll(true, "format")}>
+                      <button
+                        className="btn btn-outline w-full"
+                        disabled={!parsedCount || busy || !canAI}
+                        onClick={() => void aiReviewAll(true, "format")}
+                      >
                         Apply Format Changes
                       </button>
-                      <button className="btn btn-outline w-full" disabled={!parsedCount || busy || !canAI} onClick={() => void aiReviewAll(true, "both")}>
+                      <button
+                        className="btn btn-outline w-full"
+                        disabled={!parsedCount || busy || !canAI}
+                        onClick={() => void aiReviewAll(true, "both")}
+                      >
                         Apply Content and Format Changes
                       </button>
                     </div>
@@ -1065,7 +1010,9 @@ export default function Workflow() {
               <h2 className="text-2xl font-extrabold tracking-tight">
                 Cards <span className="text-primary">Preview</span>
               </h2>
-              <p className="opacity-70 text-sm">Preview is always shown. Click Edit to modify front/back. Delete removes the card from export.</p>
+              <p className="opacity-70 text-sm">
+                Preview is always shown. Click Edit to modify front/back. Delete removes the card from export.
+              </p>
             </div>
           </div>
 
@@ -1073,7 +1020,9 @@ export default function Workflow() {
             <div className="card bg-base-200/40 border border-base-300 rounded-2xl">
               <div className="card-body text-center space-y-2">
                 <div className="text-lg font-semibold">No cards to show</div>
-                <div className="text-sm opacity-70">{cards.length ? "Try changing the Filter." : "Upload a Markdown export, then press Parse."}</div>
+                <div className="text-sm opacity-70">
+                  {cards.length ? "Try changing the Filter." : "Upload a Markdown export, then press Parse."}
+                </div>
               </div>
             </div>
           ) : (
@@ -1104,7 +1053,7 @@ export default function Workflow() {
                 const lastMode = aiLastModeById[c.id];
                 const formatContext = lastMode === "format" || isFormatFlag(flag);
 
-                // Only show line-by-line diff if this is content/both review AND changed
+                // Only show line-by-line diff if this is content/both review (or flagged as content-ish) AND changed
                 const showDiff = changed && !incorrect && !formatContext;
 
                 // For format-only: show suggested text, but not diff
@@ -1131,7 +1080,9 @@ export default function Workflow() {
                               setStatus("Running AI review (content)…");
                               void aiReviewCard(c.id, false, "content")
                                 .then(() => setStatus("AI review complete."))
-                                .catch((e: any) => setStatus(e?.message ? `AI Review failed: ${e.message}` : "AI Review failed."));
+                                .catch((e: any) =>
+                                  setStatus(e?.message ? `AI Review failed: ${e.message}` : "AI Review failed.")
+                                );
                             }}
                           >
                             Review
@@ -1144,7 +1095,9 @@ export default function Workflow() {
                               setStatus("Running AI review (format)…");
                               void aiReviewCard(c.id, false, "format")
                                 .then(() => setStatus("AI review complete."))
-                                .catch((e: any) => setStatus(e?.message ? `AI Review failed: ${e.message}` : "AI Review failed."));
+                                .catch((e: any) =>
+                                  setStatus(e?.message ? `AI Review failed: ${e.message}` : "AI Review failed.")
+                                );
                             }}
                           >
                             Format
@@ -1158,7 +1111,9 @@ export default function Workflow() {
                               setStatus("Applying AI (both)…");
                               void aiReviewCard(c.id, true, "both")
                                 .then(() => setStatus("AI applied."))
-                                .catch((e: any) => setStatus(e?.message ? `AI Apply failed: ${e.message}` : "AI Apply failed."));
+                                .catch((e: any) =>
+                                  setStatus(e?.message ? `AI Apply failed: ${e.message}` : "AI Apply failed.")
+                                );
                             }}
                           >
                             Apply
@@ -1253,14 +1208,10 @@ export default function Workflow() {
                       )}
 
                       <div className="text-xs font-semibold opacity-70">Front (preview)</div>
-                      <pre className="whitespace-pre-wrap text-sm leading-relaxed bg-base-100/40 border border-base-300 rounded-xl p-3">
-                        {previewFront}
-                      </pre>
+                      <pre className="whitespace-pre-wrap text-sm leading-relaxed bg-base-100/40 border border-base-300 rounded-xl p-3">{previewFront}</pre>
 
                       <div className="text-xs font-semibold opacity-70">Back (preview)</div>
-                      <pre className="whitespace-pre-wrap text-sm leading-relaxed bg-base-100/40 border border-base-300 rounded-xl p-3">
-                        {previewBack}
-                      </pre>
+                      <pre className="whitespace-pre-wrap text-sm leading-relaxed bg-base-100/40 border border-base-300 rounded-xl p-3">{previewBack}</pre>
 
                       {isEditing && (
                         <div className="rounded-2xl border border-base-300 bg-base-100/50 p-3 space-y-3">
