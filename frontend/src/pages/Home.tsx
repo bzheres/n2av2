@@ -22,7 +22,7 @@ const STEPS: Step[] = [
   },
   {
     title: "Export",
-    body: "Download a CSV ready to import into Anki.",
+    body: "Export file (csv or apkg) ready to import directly into Anki.",
   },
 ];
 
@@ -106,7 +106,7 @@ export default function Home() {
               </h1>
 
               <p className="opacity-80 max-w-2xl mx-auto text-base md:text-lg">
-                Simply upload a Notion Markdown export, generate cards, preview, edit, then export CSV to Anki to begin
+                Simply upload a Notion Markdown export, generate cards, preview, edit, then export to Anki to begin
                 learning! Optional AI review on paid plans.
               </p>
 
