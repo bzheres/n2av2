@@ -345,9 +345,7 @@ async function downloadApkg(projectId: number) {
   if (ct.includes("text/html")) {
     const text = await resp.text();
     const firstLine = (text.split("\n")[0] || "").slice(0, 120);
-    throw new Error(
-      `APKG export returned HTML (wrong API base / routing). URL was: ${url}. First line: ${firstLine}`
-    );
+    throw new Error(`APKG export returned HTML (wrong API base / routing). URL was: ${url}. First line: ${firstLine}`);
   }
 
   const blob = await resp.blob();
@@ -377,7 +375,6 @@ async function downloadApkg(projectId: number) {
   a.click();
   URL.revokeObjectURL(dlUrl);
 }
-
 
 export default function Workflow() {
   const [user, setUser] = React.useState<any>(null);
@@ -487,6 +484,11 @@ export default function Workflow() {
   const parsedCount = cards.length;
   const canAI = !!user && user.plan && user.plan !== "free" && user.plan !== "guest";
   const canApkg = !!user && user.plan && user.plan !== "free" && user.plan !== "guest";
+
+  // ✅ One export button: guests/free => TSV, paid => APKG
+  const exportLabel = canApkg ? "Export APKG" : "Export TSV";
+  const exportTitle = canApkg ? "Export Anki .apkg (paid)" : "Export TSV (HTML) for Anki import";
+  const exportBtnClass = ["btn w-full", canApkg ? "btn-accent" : "btn-secondary"].join(" ");
 
   const filteredCards = React.useMemo(() => {
     if (filterMode === "all") return cards;
@@ -668,6 +670,15 @@ export default function Workflow() {
       setStatus(e?.message ? `APKG export failed: ${e.message}` : "APKG export failed.");
     } finally {
       setBusy(false);
+    }
+  }
+
+  // ✅ One export action (switches by plan)
+  async function exportByPlan() {
+    if (canApkg) {
+      await exportAPKG();
+    } else {
+      exportTSV();
     }
   }
 
@@ -1025,32 +1036,29 @@ export default function Workflow() {
                     </div>
                   </div>
 
-                  {/* Primary buttons */}
-                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                  {/* Primary buttons (single export button) */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <button className="btn btn-primary w-full" disabled={!raw || busy} onClick={doParse}>
                       Parse
                     </button>
+
                     <button className="btn btn-outline w-full" disabled={busy} onClick={clearAll}>
                       Clear
                     </button>
-                    <button className="btn btn-secondary w-full" disabled={!parsedCount || busy} onClick={exportTSV}>
-                      Export TSV
-                    </button>
+
                     <button
-                      className="btn btn-accent w-full"
-                      disabled={!projectId || busy || !canApkg}
-                      title={!canApkg ? "APKG export is available on paid plans" : "Export Anki .apkg (paid)"}
-                      onClick={() => void exportAPKG()}
+                      className={exportBtnClass}
+                      disabled={!parsedCount || busy || (canApkg && !projectId)}
+                      title={
+                        canApkg && !projectId
+                          ? "Parse while logged in to create a Project before exporting APKG"
+                          : exportTitle
+                      }
+                      onClick={() => void exportByPlan()}
                     >
-                      Export APKG
+                      {exportLabel}
                     </button>
                   </div>
-
-                  {!canApkg && user ? (
-                    <div className="text-xs opacity-70">
-                      <span className="font-semibold">APKG export</span> is a paid feature. Upgrade in Account to enable it.
-                    </div>
-                  ) : null}
 
                   {/* AI buttons */}
                   <div className="space-y-3">
@@ -1215,7 +1223,9 @@ export default function Workflow() {
                           <button
                             className="btn btn-xs btn-ghost"
                             disabled={busy || !canAI || !isPersisted || isAiLoading || disableApplyBecauseIncorrect}
-                            title={disableApplyBecauseIncorrect ? "Cannot apply: card flagged as incorrect" : "Apply AI suggestions"}
+                            title={
+                              disableApplyBecauseIncorrect ? "Cannot apply: card flagged as incorrect" : "Apply AI suggestions"
+                            }
                             onClick={() => {
                               setStatus("Applying AI (both)…");
                               void aiReviewCard(c.id, true, "both")
@@ -1228,19 +1238,11 @@ export default function Workflow() {
                             Apply
                           </button>
 
-                          <button
-                            className="btn btn-xs btn-ghost"
-                            disabled={busy || isAiLoading}
-                            onClick={() => toggleEdit(c.id)}
-                          >
+                          <button className="btn btn-xs btn-ghost" disabled={busy || isAiLoading} onClick={() => toggleEdit(c.id)}>
                             {isEditing ? "Close" : "Edit"}
                           </button>
 
-                          <button
-                            className="btn btn-xs btn-ghost"
-                            disabled={busy || isAiLoading}
-                            onClick={() => void deleteCard(c.id)}
-                          >
+                          <button className="btn btn-xs btn-ghost" disabled={busy || isAiLoading} onClick={() => void deleteCard(c.id)}>
                             Delete
                           </button>
                         </div>
