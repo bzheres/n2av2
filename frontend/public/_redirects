@@ -1,6 +1,1 @@
-# Allow your private app path (ONLY you should know this URL)
-# IMPORTANT: put this rule FIRST
-/n2a-admin-2d4f9a7c/*   /index.html   200
-
-# Everyone else sees the maintenance page
-/*                     /maintenance.html   200
+/*    /index.html   200

@@ -5,7 +5,8 @@ import UploadBox from "../components/UploadBox";
 import { meCached } from "../auth";
 import { apiFetch } from "../api";
 
-const NOTION_TEMPLATE_URL = "https://n2a-template.notion.site/N2A-Notion-Template-Read-Only-2eb54986383480a2b7b9c652a6893078";
+const NOTION_TEMPLATE_URL =
+  "https://n2a-template.notion.site/N2A-Notion-Template-Read-Only-2eb54986383480a2b7b9c652a6893078";
 
 type CardType = "qa" | "mcq";
 type EnglishVariant = "us" | "uk_au";
@@ -82,7 +83,7 @@ function DiffBlock({ original, suggested }: { original: string; suggested: strin
           return (
             <div key={idx} className="rounded px-1 py-[1px] bg-error/10 border border-error/20 line-through text-error/80">
               <span className="font-mono opacity-70">− </span>
-              {d.text}
+                {d.text}
             </div>
           );
         })}
@@ -293,6 +294,112 @@ function isIncorrectFlag(flag: string | null | undefined) {
 function isFormatFlag(flag: string | null | undefined) {
   const f = normFlag(flag);
   return f.startsWith("format_") || f === "format_changed" || f === "format_ok";
+}
+
+/* ------------------------------ */
+/* ✅ NEW: Anki-friendly TSV export */
+/* - Preserves line breaks/bullets via HTML */
+/* - Uses tab-separated values (best for Anki import) */
+/* ------------------------------ */
+
+function escapeHtml(s: string) {
+  return (s ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+/**
+ * Convert plain text into Anki-friendly HTML.
+ *
+ * Behavior:
+ * - Preserve blank lines as paragraph breaks.
+ * - If explicit bullets exist (-/*/•) → <ul>
+ * - If explicit numbering exists (1., 2., ...) → <ol>
+ * - If a block is multi-line without bullets/numbering:
+ *   treat first line as sentence and rest as bullets (looks great in Anki).
+ */
+function toAnkiHtml(input: string) {
+  const text = (input ?? "").replaceAll("\r\n", "\n").replaceAll("\r", "\n").trimEnd();
+  if (!text) return "";
+
+  const lines = text.split("\n");
+
+  // Split into blocks separated by blank lines
+  const blocks: string[][] = [];
+  let cur: string[] = [];
+  for (const ln of lines) {
+    if (ln.trim() === "") {
+      if (cur.length) blocks.push(cur);
+      cur = [];
+    } else {
+      cur.push(ln.trimEnd());
+    }
+  }
+  if (cur.length) blocks.push(cur);
+
+  const htmlBlocks: string[] = [];
+
+  const isBullet = (l: string) => /^(\s*[-*•])\s+/.test(l.trim());
+  const isNumbered = (l: string) => /^\s*\d+\.\s+/.test(l.trim());
+
+  for (const block of blocks) {
+    const b = block.filter((x) => x.trim() !== "");
+    if (!b.length) continue;
+
+    // pure bullet block
+    if (b.every((l) => isBullet(l))) {
+      const items = b.map((l) => l.trim().replace(/^[-*•]\s+/, ""));
+      htmlBlocks.push(`<ul>${items.map((it) => `<li>${escapeHtml(it)}</li>`).join("")}</ul>`);
+      continue;
+    }
+
+    // pure numbered block
+    if (b.every((l) => isNumbered(l))) {
+      const items = b.map((l) => l.trim().replace(/^\d+\.\s+/, ""));
+      htmlBlocks.push(`<ol>${items.map((it) => `<li>${escapeHtml(it)}</li>`).join("")}</ol>`);
+      continue;
+    }
+
+    // sentence then bullet block
+    if (b.length >= 2 && b.slice(1).every((l) => isBullet(l))) {
+      const head = escapeHtml(b[0].trim());
+      const items = b.slice(1).map((l) => l.trim().replace(/^[-*•]\s+/, ""));
+      htmlBlocks.push(`${head}<br><ul>${items.map((it) => `<li>${escapeHtml(it)}</li>`).join("")}</ul>`);
+      continue;
+    }
+
+    // sentence then numbered block
+    if (b.length >= 2 && b.slice(1).every((l) => isNumbered(l))) {
+      const head = escapeHtml(b[0].trim());
+      const items = b.slice(1).map((l) => l.trim().replace(/^\d+\.\s+/, ""));
+      htmlBlocks.push(`${head}<br><ol>${items.map((it) => `<li>${escapeHtml(it)}</li>`).join("")}</ol>`);
+      continue;
+    }
+
+    // default: sentence + bullets (for multi-line blocks)
+    if (b.length >= 2) {
+      const head = escapeHtml(b[0].trim());
+      const rest = b
+        .slice(1)
+        .map((x) => x.trim())
+        .filter(Boolean);
+
+      if (rest.length) {
+        htmlBlocks.push(`${head}<br><ul>${rest.map((it) => `<li>${escapeHtml(it)}</li>`).join("")}</ul>`);
+      } else {
+        htmlBlocks.push(head);
+      }
+      continue;
+    }
+
+    // single line
+    htmlBlocks.push(escapeHtml(b[0].trim()));
+  }
+
+  return htmlBlocks.join("<br><br>");
 }
 
 export default function Workflow() {
@@ -541,19 +648,28 @@ export default function Workflow() {
     }
   }
 
-  function exportCSV() {
+  // ✅ NEW: Export TSV (Anki-friendly HTML for bullets/line breaks)
+  function exportTSV() {
     const exportedCards = cards.map((c) =>
       c.card_type === "mcq" ? { ...c, front: formatMcqOptions(c.front, mcqStyle), back: formatMcqAnswer(c.back, mcqStyle) } : c
     );
 
-    const rows = [["Front", "Back"], ...exportedCards.map((c) => [c.front, c.back])];
-    const csv = rows.map((r) => r.map((v) => `"${String(v).replaceAll('"', '""')}"`).join(",")).join("\n");
+    const rows: string[] = [];
+    rows.push(["Front", "Back"].join("\t"));
 
-    const blob = new Blob([csv], { type: "text/csv" });
+    for (const c of exportedCards) {
+      const frontHtml = toAnkiHtml(c.front).replaceAll("\t", "    ");
+      const backHtml = toAnkiHtml(c.back).replaceAll("\t", "    ");
+      rows.push(`${frontHtml}\t${backHtml}`);
+    }
+
+    const tsv = rows.join("\n");
+
+    const blob = new Blob([tsv], { type: "text/tab-separated-values;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = (filename ? filename.replace(/\.md$/i, "") : "n2a") + ".csv";
+    a.download = (filename ? filename.replace(/\.md$/i, "") : "n2a") + ".tsv";
     a.click();
     URL.revokeObjectURL(url);
   }
@@ -745,7 +861,9 @@ export default function Workflow() {
           <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight">
             Workflow: <span className="text-primary">Upload</span> → Parse → Review → Export
           </h1>
-          <p className="opacity-75 max-w-2xl mx-auto">Parse locally, edit freely, export clean CSV for Anki. AI review is available on paid plans.</p>
+          <p className="opacity-75 max-w-2xl mx-auto">
+            Parse locally, edit freely, export clean TSV for Anki. AI review is available on paid plans.
+          </p>
 
           <div className="flex justify-center pt-2">
             <div className={["badge badge-lg", user ? "badge-primary badge-outline" : "badge-ghost"].join(" ")}>
@@ -794,7 +912,7 @@ export default function Workflow() {
                     File: <span className="font-semibold">{filename || "None"}</span>
                   </div>
 
-                  {/* ✅ Smart hint (Option A): stays in the Upload box, under the drop section */}
+                  {/* Smart hint */}
                   <div className="rounded-xl border border-base-300 bg-base-200/40 p-3">
                     <div className="text-sm font-semibold">Need a template?</div>
                     <div className="text-xs opacity-70 mt-1">
@@ -899,8 +1017,8 @@ export default function Workflow() {
                     <button className="btn btn-outline w-full" disabled={busy} onClick={clearAll}>
                       Clear
                     </button>
-                    <button className="btn btn-secondary w-full" disabled={!parsedCount || busy} onClick={exportCSV}>
-                      Export CSV
+                    <button className="btn btn-secondary w-full" disabled={!parsedCount || busy} onClick={exportTSV}>
+                      Export TSV (Anki)
                     </button>
                   </div>
 
@@ -986,7 +1104,7 @@ export default function Workflow() {
                 const lastMode = aiLastModeById[c.id];
                 const formatContext = lastMode === "format" || isFormatFlag(flag);
 
-                // Only show line-by-line diff if this is content/both review (or flagged as content-ish) AND changed
+                // Only show line-by-line diff if this is content/both review AND changed
                 const showDiff = changed && !incorrect && !formatContext;
 
                 // For format-only: show suggested text, but not diff
@@ -1135,10 +1253,14 @@ export default function Workflow() {
                       )}
 
                       <div className="text-xs font-semibold opacity-70">Front (preview)</div>
-                      <pre className="whitespace-pre-wrap text-sm leading-relaxed bg-base-100/40 border border-base-300 rounded-xl p-3">{previewFront}</pre>
+                      <pre className="whitespace-pre-wrap text-sm leading-relaxed bg-base-100/40 border border-base-300 rounded-xl p-3">
+                        {previewFront}
+                      </pre>
 
                       <div className="text-xs font-semibold opacity-70">Back (preview)</div>
-                      <pre className="whitespace-pre-wrap text-sm leading-relaxed bg-base-100/40 border border-base-300 rounded-xl p-3">{previewBack}</pre>
+                      <pre className="whitespace-pre-wrap text-sm leading-relaxed bg-base-100/40 border border-base-300 rounded-xl p-3">
+                        {previewBack}
+                      </pre>
 
                       {isEditing && (
                         <div className="rounded-2xl border border-base-300 bg-base-100/50 p-3 space-y-3">
