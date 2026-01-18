@@ -14,10 +14,12 @@ type FilterMode = "all" | "qa" | "mcq";
 type AIMode = "content" | "format" | "both";
 
 /**
- * ✅ Updated: MCQ answer export mode (3 options)
+ * ✅ MCQ answer output mode (3 options)
  * - label_only: keep answers as "B" / "2" (or styled label)
  * - option_only: expand "B" -> "<option text>" (no label)
  * - label_plus_option: expand "B" -> "B) <option text>"
+ *
+ * NOTE: Expansion only happens when the stored answer is JUST a label token.
  */
 type McqAnswerMode = "label_only" | "option_only" | "label_plus_option";
 
@@ -321,7 +323,7 @@ function formatMcqAnswer(back: string, style: McqStyle): string {
 }
 
 /**
- * ✅ Updated: 3-mode MCQ answer output when the stored answer is just a label.
+ * ✅ 3-mode MCQ answer output when the stored answer is just a label.
  * - label_only: return label (styled)
  * - option_only: return option text only
  * - label_plus_option: return "B) option text"
@@ -341,13 +343,15 @@ function expandMcqAnswerIfLabelOnly(args: {
   const trimmed = (base || "").trim();
   if (!trimmed) return trimmed;
 
-  // If user wants label-only, return now
-  if (mode === "label_only") return trimmed;
-
-  // Only proceed if answer is JUST a label token:
+  // Only proceed with mapping if answer is JUST a label token:
   // "B", "B)", "B.", "2", "2)", "2."
   const m = trimmed.match(/^([A-Za-z]|\d+)\s*([)\.])?$/);
+
+  // If not a pure label, do not rewrite; return as-is.
   if (!m) return base;
+
+  // If user wants label-only, return the styled label token
+  if (mode === "label_only") return trimmed;
 
   const token = m[1];
   const isNum = /^\d+$/.test(token);
@@ -489,7 +493,8 @@ export default function Workflow() {
 
   // Controls
   const [mcqStyle, setMcqStyle] = React.useState<McqStyle>("1)");
-  const [mcqAnswerMode, setMcqAnswerMode] = React.useState<McqAnswerMode>("label_only"); // ✅ updated
+  // ✅ DEFAULT: show label + option
+  const [mcqAnswerMode, setMcqAnswerMode] = React.useState<McqAnswerMode>("label_plus_option");
   const [englishVariant, setEnglishVariant] = React.useState<EnglishVariant>("uk_au");
   const [filterMode, setFilterMode] = React.useState<FilterMode>("all");
 
@@ -1142,9 +1147,10 @@ export default function Workflow() {
                           value={mcqAnswerMode}
                           onChange={(e) => setMcqAnswerMode(e.target.value as McqAnswerMode)}
                         >
+                          {/* ✅ Default first */}
+                          <option value="label_plus_option">Label + option (e.g. B) Compton scatter)</option>
                           <option value="label_only">Label only (e.g. B)</option>
                           <option value="option_only">Option only (e.g. Compton scatter)</option>
-                          <option value="label_plus_option">Label + option (e.g. B) Compton scatter)</option>
                         </select>
                         <div className="text-[11px] opacity-60">
                           If the answer is just a label (B/2), N2A can map it to the matching option.
