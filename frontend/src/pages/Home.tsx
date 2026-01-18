@@ -90,6 +90,20 @@ export default function Home() {
         title="Notion to Anki — fast flashcards with optional AI review"
         description="Upload a Notion Markdown export, generate Q&A and MCQ cards, preview edits, and export an Anki-ready file. Optional AI review on paid plans."
         canonicalPath="/"
+        jsonLd={{
+          "@context": "https://schema.org",
+          "@type": "SoftwareApplication",
+          "name": "N2A",
+          "applicationCategory": "EducationalApplication",
+          "operatingSystem": "Web",
+          "url": "https://n2a.com.au",
+          "description": "N2A converts Notion notes into Anki flashcards for spaced repetition study.",
+          "offers": {
+            "@type": "Offer",
+            "price": "0",
+            "priceCurrency": "AUD"
+          }
+        }}
       />
 
       <div className="-mx-4 md:-mx-6 lg:-mx-8">
