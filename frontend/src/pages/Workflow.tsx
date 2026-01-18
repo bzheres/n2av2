@@ -15,11 +15,14 @@ type AIMode = "content" | "format" | "both";
 
 /**
  * ✅ MCQ answer output mode (3 options)
- * - label_only: keep answers as "B" / "2" (or styled label)
- * - option_only: expand "B" -> "<option text>" (no label)
- * - label_plus_option: expand "B" -> "B) <option text>"
+ * - label_only: show just the label (e.g. "B)" or "2)")
+ * - option_only: show just the option text (e.g. "Compton scatter")
+ * - label_plus_option: show label + option text (e.g. "B) Compton scatter")
  *
- * NOTE: Expansion only happens when the stored answer is JUST a label token.
+ * NOTE:
+ * - If stored answer is a label, we can expand it reliably.
+ * - If stored answer is option text, label_only will attempt reverse-mapping
+ *   (match option text -> find its index -> return label).
  */
 type McqAnswerMode = "label_only" | "option_only" | "label_plus_option";
 
@@ -323,12 +326,16 @@ function formatMcqAnswer(back: string, style: McqStyle): string {
 }
 
 /**
- * ✅ 3-mode MCQ answer output when the stored answer is just a label.
- * - label_only: return label (styled)
- * - option_only: return option text only
- * - label_plus_option: return "B) option text"
- *
- * If the answer is NOT a pure label token, we do NOT rewrite it.
+ * ✅ MCQ answer formatting (3 modes) with reverse-mapping support:
+ * - label_only:
+ *    - if back is a label -> keep label
+ *    - if back is option text (or label+option) -> try match option -> return label
+ * - option_only:
+ *    - if back is a label -> expand to option text
+ *    - else leave unchanged
+ * - label_plus_option:
+ *    - if back is a label -> expand to "label + option"
+ *    - else leave unchanged
  */
 function expandMcqAnswerIfLabelOnly(args: {
   cardFront: string;
@@ -338,55 +345,100 @@ function expandMcqAnswerIfLabelOnly(args: {
 }): string {
   const { cardFront, cardBack, style, mode } = args;
 
-  // Always normalize label styling first (but only when safe)
+  // First: safe normalization of label styling if the answer looks like a label
   const base = formatMcqAnswer(cardBack, style);
   const trimmed = (base || "").trim();
   if (!trimmed) return trimmed;
 
-  // Only proceed with mapping if answer is JUST a label token:
-  // "B", "B)", "B.", "2", "2)", "2."
-  const m = trimmed.match(/^([A-Za-z]|\d+)\s*([)\.])?$/);
-
-  // If not a pure label, do not rewrite; return as-is.
-  if (!m) return base;
-
-  // If user wants label-only, return the styled label token
-  if (mode === "label_only") return trimmed;
-
-  const token = m[1];
-  const isNum = /^\d+$/.test(token);
-  const isLetter = /^[A-Za-z]$/.test(token);
-
   // Build consistently-labeled options list from the question front
   const frontFormatted = formatMcqOptions(cardFront, style);
   const lines = frontFormatted.split("\n");
-  if (lines.length <= 1) return base;
-
   const optLines = lines
     .slice(1)
     .map((l) => l.trim())
     .filter(Boolean);
 
-  if (!optLines.length) return base;
+  const labelFor = (idx: number) => {
+    const n = idx + 1;
+    const A = String.fromCharCode("A".charCodeAt(0) + idx);
+    const a = String.fromCharCode("a".charCodeAt(0) + idx);
 
-  // Compute index from label token
-  let idx = 0;
-  if (isNum) idx = Math.max(parseInt(token, 10) - 1, 0);
-  else if (isLetter) idx = token.toUpperCase().charCodeAt(0) - "A".charCodeAt(0);
-  else return base;
+    switch (style) {
+      case "1)":
+        return `${n})`;
+      case "1.":
+        return `${n}.`;
+      case "A)":
+        return `${A})`;
+      case "a)":
+        return `${a})`;
+      case "A.":
+        return `${A}.`;
+      case "a.":
+        return `${a}.`;
+      default:
+        return `${n})`;
+    }
+  };
 
-  if (idx < 0 || idx >= optLines.length) return base;
+  const stripLeadingLabel = (s: string) => s.replace(/^\s*([A-Za-z]|\d+)[)\.]\s+/, "").trim();
 
-  const optLine = optLines[idx]; // e.g. "B) Compton scatter"
-  if (!optLine) return base;
+  const normalize = (s: string) =>
+    s
+      .toLowerCase()
+      .replace(/\s+/g, " ")
+      .replace(/[“”]/g, '"')
+      .replace(/[‘’]/g, "'")
+      .trim();
 
-  if (mode === "label_plus_option") {
-    return optLine;
+  const labelTokenToIndex = (token: string) => {
+    if (/^\d+$/.test(token)) return Math.max(parseInt(token, 10) - 1, 0);
+    if (/^[A-Za-z]$/.test(token)) return token.toUpperCase().charCodeAt(0) - "A".charCodeAt(0);
+    return null;
+  };
+
+  // CASE A) Stored answer is a pure label token: B / B) / B. / 2 / 2) / 2.
+  const mLabelOnly = trimmed.match(/^([A-Za-z]|\d+)\s*([)\.])?$/);
+  if (mLabelOnly) {
+    const token = mLabelOnly[1];
+    const idx = labelTokenToIndex(token);
+    if (idx == null) return trimmed;
+
+    // label_only: return styled label (already styled by formatMcqAnswer)
+    if (mode === "label_only") return trimmed;
+
+    // If we can't expand, fall back to label
+    if (!optLines.length || idx < 0 || idx >= optLines.length) return trimmed;
+
+    const optLine = optLines[idx]; // e.g. "B) Compton scatter"
+    if (mode === "label_plus_option") return optLine;
+
+    // option_only
+    const optionOnly = stripLeadingLabel(optLine);
+    return optionOnly || trimmed;
   }
 
-  // mode === "option_only" -> strip leading label
-  const optionOnly = optLine.replace(/^\s*([A-Za-z]|\d+)[)\.]\s+/, "").trim();
-  return optionOnly || base;
+  // CASE B) Not a pure label token.
+  // Only special-case: label_only should try reverse-mapping from option text -> label.
+  if (mode === "label_only" && optLines.length) {
+    // If back is like "B) Compton scatter", strip label and match.
+    // If back is "Compton scatter", match directly.
+    const target = normalize(stripLeadingLabel(trimmed));
+
+    let matchIdx = -1;
+    for (let i = 0; i < optLines.length; i++) {
+      const optText = normalize(stripLeadingLabel(optLines[i]));
+      if (optText && optText === target) {
+        matchIdx = i;
+        break;
+      }
+    }
+
+    if (matchIdx >= 0) return labelFor(matchIdx);
+  }
+
+  // Otherwise, do not rewrite.
+  return trimmed;
 }
 
 function normFlag(flag: string | null | undefined) {
@@ -1153,7 +1205,7 @@ export default function Workflow() {
                           <option value="option_only">Option only (e.g. Compton scatter)</option>
                         </select>
                         <div className="text-[11px] opacity-60">
-                          If the answer is just a label (B/2), N2A can map it to the matching option.
+                          Label-only will try to match a full-text answer to an option; if no match, it leaves the answer unchanged.
                         </div>
                       </div>
                     </div>
@@ -1188,9 +1240,7 @@ export default function Workflow() {
                     <button
                       className={exportBtnClass}
                       disabled={!parsedCount || busy || (canApkg && !projectId)}
-                      title={
-                        canApkg && !projectId ? "Parse while logged in to create a Project before exporting APKG" : exportTitle
-                      }
+                      title={canApkg && !projectId ? "Parse while logged in to create a Project before exporting APKG" : exportTitle}
                       onClick={() => void exportByPlan()}
                     >
                       {exportLabel}
