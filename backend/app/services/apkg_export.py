@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import html
 import os
+import re
 import tempfile
 from typing import Iterable, Tuple
 
@@ -11,30 +12,93 @@ import genanki
 from ..models import Card
 
 
+# ---------------------------------------------------------------------
+# Stable IDs (important for Anki / genanki)
+# ---------------------------------------------------------------------
 def _stable_id(*parts: str) -> int:
     """
-    genanki expects a (signed) 64-bit-ish integer ID. We'll derive a stable one.
+    genanki expects a (signed) 64-bit-ish integer ID.
+    We derive a stable one so re-exports don't duplicate models.
     """
     s = "|".join(parts).encode("utf-8")
     h = hashlib.sha1(s).digest()[:8]
     val = int.from_bytes(h, "big", signed=False)
-    # keep it under 2^63-1 to be safe across tooling
     return val & ((1 << 63) - 1)
+
+
+# ---------------------------------------------------------------------
+# Markdown-ish → HTML helpers
+# (small, safe subset for AI-formatted content)
+# ---------------------------------------------------------------------
+_md_bold_re = re.compile(r"\*\*(.+?)\*\*")
+_md_italic_re = re.compile(r"(?<!\*)\*(?!\s)(.+?)(?<!\s)\*(?!\*)")
+_md_code_re = re.compile(r"`([^`]+)`")
+
+
+def _markdownish_to_plaintext(s: str) -> str:
+    """
+    Normalize a small subset of Notion/Markdown-like formatting
+    BEFORE HTML escaping.
+    """
+    if not s:
+        return ""
+
+    s = s.replace("\r\n", "\n").replace("\r", "\n")
+
+    lines = s.split("\n")
+    out_lines = []
+
+    for line in lines:
+        stripped = line.lstrip()
+
+        # Convert bullets: "- item" or "* item" → "• item"
+        if stripped.startswith("- ") or stripped.startswith("* "):
+            indent = len(line) - len(stripped)
+            out_lines.append((" " * indent) + "• " + stripped[2:])
+        else:
+            out_lines.append(line)
+
+    return "\n".join(out_lines)
 
 
 def _field_to_html(field: str) -> str:
     """
-    For APKG we want HTML fields (Anki renders HTML).
-    Convert plaintext -> safe HTML with <br> for newlines.
+    Convert AI-reviewed text into HTML suitable for Anki.
+
+    Supports:
+    - **bold** → <b>
+    - *italic* → <i>
+    - `code` → <code>
+    - bullets → •
+    - newlines → <br>
+
+    We intentionally avoid full Markdown parsing.
     """
     s = "" if field is None else str(field)
+
+    # Tabs → spaces (Anki-safe)
     s = s.replace("\t", "    ")
+
+    # Normalize bullets / spacing BEFORE escaping
+    s = _markdownish_to_plaintext(s)
+
+    # Escape everything (prevents HTML injection)
     s = html.escape(s, quote=True)
-    s = s.replace("\r\n", "\n").replace("\r", "\n")
+
+    # Apply lightweight formatting on escaped text
+    s = _md_code_re.sub(r"<code>\1</code>", s)
+    s = _md_bold_re.sub(r"<b>\1</b>", s)
+    s = _md_italic_re.sub(r"<i>\1</i>", s)
+
+    # Newlines → <br>
     s = s.replace("\n", "<br>")
+
     return s
 
 
+# ---------------------------------------------------------------------
+# APKG builder
+# ---------------------------------------------------------------------
 def build_apkg(
     *,
     deck_name: str,
@@ -43,7 +107,9 @@ def build_apkg(
 ) -> Tuple[str, str]:
     """
     Returns: (apkg_path, suggested_filename)
-    identity_key should be stable per user+project (e.g. "uid:1|pid:42")
+
+    identity_key should be stable per user+project
+    e.g. "uid:1|pid:42"
     """
     deck_id = _stable_id("deck", identity_key)
     model_id = _stable_id("model", "n2a-basic-v1")
@@ -75,7 +141,8 @@ def build_apkg(
         css="""
 /* N2A deck styling */
 .card {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI",
+               Roboto, Arial, sans-serif;
   font-size: 18px;
   line-height: 1.35;
   text-align: left;
@@ -102,25 +169,30 @@ def build_apkg(
   margin: 12px 0;
 }
 
-/* subtle emphasis support */
+/* emphasis */
 b, strong { color: #F7F7F8; }
 i, em { opacity: 0.95; }
 
-/* nicer lists if you end up exporting bullet-like lines */
-ul { margin: 8px 0 8px 22px; }
-li { margin: 4px 0; }
+/* code */
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.95em;
+  background: rgba(255,255,255,0.06);
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+
+/* bullets rendered as text */
 """.strip(),
     )
 
     deck = genanki.Deck(deck_id, deck_name)
 
-    n = 0
     for c in cards:
         front_html = _field_to_html(c.front)
         back_html = _field_to_html(c.back)
         note = genanki.Note(model=model, fields=[front_html, back_html])
         deck.add_note(note)
-        n += 1
 
     fd, path = tempfile.mkstemp(prefix="n2a_", suffix=".apkg")
     os.close(fd)
@@ -130,6 +202,5 @@ li { margin: 4px 0; }
 
     safe_name = "".join(ch for ch in deck_name if ch.isalnum() or ch in (" ", "-", "_")).strip()
     safe_name = safe_name.replace(" ", "_") or "n2a_deck"
-    filename = f"{safe_name}.apkg"
 
-    return path, filename
+    return path, f"{safe_name}.apkg"
