@@ -14,11 +14,12 @@ type FilterMode = "all" | "qa" | "mcq";
 type AIMode = "content" | "format" | "both";
 
 /**
- * ✅ New: MCQ answer export mode
+ * ✅ Updated: MCQ answer export mode (3 options)
  * - label_only: keep answers as "B" / "2" (or styled label)
- * - label_plus_text: expand "B" -> "B) <option text>" if options are available
+ * - option_only: expand "B" -> "<option text>" (no label)
+ * - label_plus_option: expand "B" -> "B) <option text>"
  */
-type McqAnswerMode = "label_only" | "label_plus_text";
+type McqAnswerMode = "label_only" | "option_only" | "label_plus_option";
 
 type Card = {
   id: string; // UI keeps string IDs; persisted IDs are numeric-as-string
@@ -320,11 +321,12 @@ function formatMcqAnswer(back: string, style: McqStyle): string {
 }
 
 /**
- * ✅ New: if back is ONLY a label (e.g. "B" or "2"), optionally append the option text:
- *   "B" -> "B) <option text>"
+ * ✅ Updated: 3-mode MCQ answer output when the stored answer is just a label.
+ * - label_only: return label (styled)
+ * - option_only: return option text only
+ * - label_plus_option: return "B) option text"
  *
- * We use the ORIGINAL card front (as stored), because it may contain raw option lines,
- * and we normalize them on-the-fly.
+ * If the answer is NOT a pure label token, we do NOT rewrite it.
  */
 function expandMcqAnswerIfLabelOnly(args: {
   cardFront: string;
@@ -334,15 +336,16 @@ function expandMcqAnswerIfLabelOnly(args: {
 }): string {
   const { cardFront, cardBack, style, mode } = args;
 
-  // If user didn't request expansion, return the normal formatted answer
+  // Always normalize label styling first (but only when safe)
   const base = formatMcqAnswer(cardBack, style);
-  if (mode !== "label_plus_text") return base;
-
-  // Only expand if the answer is just a label (after formatting), no trailing text
   const trimmed = (base || "").trim();
   if (!trimmed) return trimmed;
 
-  // Allow "B", "B)", "B.", "2", "2)", "2."
+  // If user wants label-only, return now
+  if (mode === "label_only") return trimmed;
+
+  // Only proceed if answer is JUST a label token:
+  // "B", "B)", "B.", "2", "2)", "2."
   const m = trimmed.match(/^([A-Za-z]|\d+)\s*([)\.])?$/);
   if (!m) return base;
 
@@ -350,29 +353,36 @@ function expandMcqAnswerIfLabelOnly(args: {
   const isNum = /^\d+$/.test(token);
   const isLetter = /^[A-Za-z]$/.test(token);
 
-  // Get options (formatted consistently)
+  // Build consistently-labeled options list from the question front
   const frontFormatted = formatMcqOptions(cardFront, style);
   const lines = frontFormatted.split("\n");
   if (lines.length <= 1) return base;
 
-  const optLines = lines.slice(1).map((l) => l.trim()).filter(Boolean);
+  const optLines = lines
+    .slice(1)
+    .map((l) => l.trim())
+    .filter(Boolean);
+
   if (!optLines.length) return base;
 
+  // Compute index from label token
   let idx = 0;
-  if (isNum) {
-    idx = Math.max(parseInt(token, 10) - 1, 0);
-  } else if (isLetter) {
-    idx = token.toUpperCase().charCodeAt(0) - "A".charCodeAt(0);
-  } else {
-    return base;
-  }
+  if (isNum) idx = Math.max(parseInt(token, 10) - 1, 0);
+  else if (isLetter) idx = token.toUpperCase().charCodeAt(0) - "A".charCodeAt(0);
+  else return base;
 
   if (idx < 0 || idx >= optLines.length) return base;
 
-  // optLines are like "B) Compton scatter" already
-  const optLine = optLines[idx];
-  // If somehow it's missing a label, still just append raw
-  return optLine ? optLine : base;
+  const optLine = optLines[idx]; // e.g. "B) Compton scatter"
+  if (!optLine) return base;
+
+  if (mode === "label_plus_option") {
+    return optLine;
+  }
+
+  // mode === "option_only" -> strip leading label
+  const optionOnly = optLine.replace(/^\s*([A-Za-z]|\d+)[)\.]\s+/, "").trim();
+  return optionOnly || base;
 }
 
 function normFlag(flag: string | null | undefined) {
@@ -479,7 +489,7 @@ export default function Workflow() {
 
   // Controls
   const [mcqStyle, setMcqStyle] = React.useState<McqStyle>("1)");
-  const [mcqAnswerMode, setMcqAnswerMode] = React.useState<McqAnswerMode>("label_only"); // ✅ new
+  const [mcqAnswerMode, setMcqAnswerMode] = React.useState<McqAnswerMode>("label_only"); // ✅ updated
   const [englishVariant, setEnglishVariant] = React.useState<EnglishVariant>("uk_au");
   const [filterMode, setFilterMode] = React.useState<FilterMode>("all");
 
@@ -1133,10 +1143,11 @@ export default function Workflow() {
                           onChange={(e) => setMcqAnswerMode(e.target.value as McqAnswerMode)}
                         >
                           <option value="label_only">Label only (e.g. B)</option>
-                          <option value="label_plus_text">Label + option text (e.g. B Compton scatter)</option>
+                          <option value="option_only">Option only (e.g. Compton scatter)</option>
+                          <option value="label_plus_option">Label + option (e.g. B) Compton scatter)</option>
                         </select>
                         <div className="text-[11px] opacity-60">
-                          If the answer is just a label (B/2), N2A can optionally append the matching option text.
+                          If the answer is just a label (B/2), N2A can map it to the matching option.
                         </div>
                       </div>
                     </div>
@@ -1171,7 +1182,9 @@ export default function Workflow() {
                     <button
                       className={exportBtnClass}
                       disabled={!parsedCount || busy || (canApkg && !projectId)}
-                      title={canApkg && !projectId ? "Parse while logged in to create a Project before exporting APKG" : exportTitle}
+                      title={
+                        canApkg && !projectId ? "Parse while logged in to create a Project before exporting APKG" : exportTitle
+                      }
                       onClick={() => void exportByPlan()}
                     >
                       {exportLabel}
