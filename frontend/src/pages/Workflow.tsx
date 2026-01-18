@@ -14,17 +14,17 @@ type FilterMode = "all" | "qa" | "mcq";
 type AIMode = "content" | "format" | "both";
 
 /**
- * ✅ MCQ answer output mode (3 options)
+ * ✅ MCQ answer output mode (4 options)
+ * - default: do NOT transform the answer (keep exactly what was imported)
  * - label_only: show just the label (e.g. "B)" or "2)")
  * - option_only: show just the option text (e.g. "Compton scatter")
  * - label_plus_option: show label + option text (e.g. "B) Compton scatter")
  *
  * NOTE:
  * - If stored answer is a label, we can expand it reliably.
- * - If stored answer is option text, label_only will attempt reverse-mapping
- *   (match option text -> find its index -> return label).
+ * - If stored answer is option text, label_only will attempt reverse-mapping.
  */
-type McqAnswerMode = "label_only" | "option_only" | "label_plus_option";
+type McqAnswerMode = "default" | "label_only" | "option_only" | "label_plus_option";
 
 type Card = {
   id: string; // UI keeps string IDs; persisted IDs are numeric-as-string
@@ -277,7 +277,6 @@ function formatMcqAnswer(back: string, style: McqStyle): string {
   const isLetter = /^[A-Za-z]$/.test(token);
 
   // If it's a letter with no delimiter and the rest looks like a word continuation, do nothing.
-  // Example: "Photoelectric effect" matches token=P, rest="hotoelectric effect"
   if (isLetter) {
     const restStartsLower = rest.length > 0 && /^[a-z]/.test(rest);
     const looksLikeWordContinuation = !delim && restStartsLower;
@@ -326,16 +325,9 @@ function formatMcqAnswer(back: string, style: McqStyle): string {
 }
 
 /**
- * ✅ MCQ answer formatting (3 modes) with reverse-mapping support:
- * - label_only:
- *    - if back is a label -> keep label
- *    - if back is option text (or label+option) -> try match option -> return label
- * - option_only:
- *    - if back is a label -> expand to option text
- *    - else leave unchanged
- * - label_plus_option:
- *    - if back is a label -> expand to "label + option"
- *    - else leave unchanged
+ * ✅ MCQ answer formatting (label/option/label+option) with reverse-mapping support.
+ * IMPORTANT:
+ * - If mode === "default": return original answer (trimmed) and do not rewrite anything.
  */
 function expandMcqAnswerIfLabelOnly(args: {
   cardFront: string;
@@ -344,6 +336,9 @@ function expandMcqAnswerIfLabelOnly(args: {
   mode: McqAnswerMode;
 }): string {
   const { cardFront, cardBack, style, mode } = args;
+
+  // ✅ Default means: keep exactly what was imported (no rewriting at all).
+  if (mode === "default") return (cardBack ?? "").trim();
 
   // First: safe normalization of label styling if the answer looks like a label
   const base = formatMcqAnswer(cardBack, style);
@@ -419,7 +414,7 @@ function expandMcqAnswerIfLabelOnly(args: {
   }
 
   // CASE B) Not a pure label token.
-  // Only special-case: label_only should try reverse-mapping from option text -> label.
+  // Special-case: label_only should try reverse-mapping from option text -> label.
   if (mode === "label_only" && optLines.length) {
     // If back is like "B) Compton scatter", strip label and match.
     // If back is "Compton scatter", match directly.
@@ -437,7 +432,7 @@ function expandMcqAnswerIfLabelOnly(args: {
     if (matchIdx >= 0) return labelFor(matchIdx);
   }
 
-  // Otherwise, do not rewrite.
+  // For option_only / label_plus_option: if it wasn't a label token, we don't rewrite.
   return trimmed;
 }
 
@@ -545,8 +540,8 @@ export default function Workflow() {
 
   // Controls
   const [mcqStyle, setMcqStyle] = React.useState<McqStyle>("1)");
-  // ✅ DEFAULT: show label + option
-  const [mcqAnswerMode, setMcqAnswerMode] = React.useState<McqAnswerMode>("label_plus_option");
+  // ✅ DEFAULT: keep imported answer format (mixed per-card)
+  const [mcqAnswerMode, setMcqAnswerMode] = React.useState<McqAnswerMode>("default");
   const [englishVariant, setEnglishVariant] = React.useState<EnglishVariant>("uk_au");
   const [filterMode, setFilterMode] = React.useState<FilterMode>("all");
 
@@ -1017,7 +1012,9 @@ export default function Workflow() {
           </div>
 
           <div className="space-y-1">
-            <div className="text-lg font-semibold">{batch.apply ? "Applying AI to all cards…" : "Reviewing all cards…"}</div>
+            <div className="text-lg font-semibold">
+              {batch.apply ? "Applying AI to all cards…" : "Reviewing all cards…"}
+            </div>
             <div className="text-sm opacity-70">
               Mode: <span className="font-semibold">{batch.mode}</span> • {batch.done}/{batch.total} ({progressPct}%)
               {batch.errors ? ` • errors: ${batch.errors}` : ""}
@@ -1199,13 +1196,14 @@ export default function Workflow() {
                           value={mcqAnswerMode}
                           onChange={(e) => setMcqAnswerMode(e.target.value as McqAnswerMode)}
                         >
-                          {/* ✅ Default first */}
-                          <option value="label_plus_option">Label + option (e.g. B) Compton scatter)</option>
+                          {/* ✅ Requested order */}
+                          <option value="default">Default (keep imported answer)</option>
                           <option value="label_only">Label only (e.g. B)</option>
                           <option value="option_only">Option only (e.g. Compton scatter)</option>
+                          <option value="label_plus_option">Label + option (e.g. B) Compton scatter)</option>
                         </select>
                         <div className="text-[11px] opacity-60">
-                          Label-only will try to match a full-text answer to an option; if no match, it leaves the answer unchanged.
+                          Default does not modify answers. Label-only will try to match a full-text answer to an option; if no match, it leaves the answer unchanged.
                         </div>
                       </div>
                     </div>
@@ -1240,7 +1238,9 @@ export default function Workflow() {
                     <button
                       className={exportBtnClass}
                       disabled={!parsedCount || busy || (canApkg && !projectId)}
-                      title={canApkg && !projectId ? "Parse while logged in to create a Project before exporting APKG" : exportTitle}
+                      title={
+                        canApkg && !projectId ? "Parse while logged in to create a Project before exporting APKG" : exportTitle
+                      }
                       onClick={() => void exportByPlan()}
                     >
                       {exportLabel}
@@ -1366,10 +1366,7 @@ export default function Workflow() {
                 const lastMode = aiLastModeById[c.id];
                 const formatContext = lastMode === "format" || isFormatFlag(flag);
 
-                // Only show line-by-line diff if this is content/both review AND changed
                 const showDiff = changed && !incorrect && !formatContext;
-
-                // For format-only: show suggested text, but not diff
                 const showPlainSuggested = changed && !incorrect && formatContext;
 
                 const disableApplyBecauseIncorrect = incorrect;
@@ -1432,11 +1429,19 @@ export default function Workflow() {
                             Apply
                           </button>
 
-                          <button className="btn btn-xs btn-ghost" disabled={busy || isAiLoading} onClick={() => toggleEdit(c.id)}>
+                          <button
+                            className="btn btn-xs btn-ghost"
+                            disabled={busy || isAiLoading}
+                            onClick={() => toggleEdit(c.id)}
+                          >
                             {isEditing ? "Close" : "Edit"}
                           </button>
 
-                          <button className="btn btn-xs btn-ghost" disabled={busy || isAiLoading} onClick={() => void deleteCard(c.id)}>
+                          <button
+                            className="btn btn-xs btn-ghost"
+                            disabled={busy || isAiLoading}
+                            onClick={() => void deleteCard(c.id)}
+                          >
                             Delete
                           </button>
                         </div>
@@ -1468,7 +1473,9 @@ export default function Workflow() {
                               <div className="text-sm opacity-80 mt-1 whitespace-pre-wrap">
                                 {feedback || "AI flagged the original answer as incorrect. No replacement answer is provided."}
                               </div>
-                              <div className="text-xs opacity-70 mt-2">Tip: edit the card manually, then re-run AI review.</div>
+                              <div className="text-xs opacity-70 mt-2">
+                                Tip: edit the card manually, then re-run AI review.
+                              </div>
                             </div>
                           ) : (
                             <div className="text-sm whitespace-pre-wrap opacity-80">
