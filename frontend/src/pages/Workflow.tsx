@@ -314,6 +314,38 @@ function fieldToHtml(field: string) {
   return escapeHtml(noTabs).replace(/(?:\r\n|\r|\n)/g, "<br>");
 }
 
+// --- APKG download helper ---
+async function downloadApkg(projectId: number) {
+  const resp = await fetch(`${import.meta.env.VITE_API_BASE || ""}/export/apkg/${projectId}`, {
+    method: "GET",
+    credentials: "include",
+  });
+
+  if (!resp.ok) {
+    // Try to show a helpful error if backend returned JSON detail
+    try {
+      const j = await resp.json();
+      throw new Error(j?.detail || `APKG export failed (${resp.status})`);
+    } catch {
+      throw new Error(`APKG export failed (${resp.status})`);
+    }
+  }
+
+  const blob = await resp.blob();
+
+  // Try extract filename from Content-Disposition
+  const cd = resp.headers.get("content-disposition") || "";
+  const m = cd.match(/filename="?([^"]+)"?/i);
+  const filename = m?.[1] || "n2a_deck.apkg";
+
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 export default function Workflow() {
   const [user, setUser] = React.useState<any>(null);
   const [authLoading, setAuthLoading] = React.useState(true);
@@ -421,6 +453,7 @@ export default function Workflow() {
 
   const parsedCount = cards.length;
   const canAI = !!user && user.plan && user.plan !== "free" && user.plan !== "guest";
+  const canApkg = !!user && user.plan && user.plan !== "free" && user.plan !== "guest";
 
   const filteredCards = React.useMemo(() => {
     if (filterMode === "all") return cards;
@@ -527,18 +560,21 @@ export default function Workflow() {
       const pid = pr.project.id;
       setProjectId(pid);
 
-      const cr = await apiFetch<{ cards: Array<{ id: number; card_type: CardType; front: string; back: string }> }>("/cards", {
-        method: "POST",
-        body: JSON.stringify({
-          project_id: pid,
-          cards: parsedLocal.map((c) => ({
-            card_type: c.card_type,
-            front: c.front,
-            back: c.back,
-            raw: undefined,
-          })),
-        }),
-      });
+      const cr = await apiFetch<{ cards: Array<{ id: number; card_type: CardType; front: string; back: string }> }>(
+        "/cards",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            project_id: pid,
+            cards: parsedLocal.map((c) => ({
+              card_type: c.card_type,
+              front: c.front,
+              back: c.back,
+              raw: undefined,
+            })),
+          }),
+        }
+      );
 
       const persisted = cr.cards.map((c) => ({
         id: String(c.id),
@@ -578,6 +614,28 @@ export default function Workflow() {
     a.download = (filename ? filename.replace(/\.md$/i, "") : "n2a") + ".tsv";
     a.click();
     URL.revokeObjectURL(url);
+  }
+
+  async function exportAPKG() {
+    if (!projectId) {
+      setStatus("No project saved yet. Press Parse while logged in to save cards first.");
+      return;
+    }
+    if (!canApkg) {
+      setStatus("APKG export is available on paid plans.");
+      return;
+    }
+
+    setBusy(true);
+    setStatus("Building APKG deck…");
+    try {
+      await downloadApkg(projectId);
+      setStatus("APKG exported.");
+    } catch (e: any) {
+      setStatus(e?.message ? `APKG export failed: ${e.message}` : "APKG export failed.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   function toAiVariant(v: EnglishVariant): "en-AU" | "en-US" {
@@ -718,7 +776,11 @@ export default function Workflow() {
         }
       });
 
-      setStatus(apply ? `AI complete: applied ${mode} for ${saved.length} card(s).` : `AI complete: reviewed ${mode} for ${saved.length} card(s).`);
+      setStatus(
+        apply
+          ? `AI complete: applied ${mode} for ${saved.length} card(s).`
+          : `AI complete: reviewed ${mode} for ${saved.length} card(s).`
+      );
     } finally {
       setBatch((b) => ({ ...b, running: false }));
       setBusy(false);
@@ -931,7 +993,7 @@ export default function Workflow() {
                   </div>
 
                   {/* Primary buttons */}
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
                     <button className="btn btn-primary w-full" disabled={!raw || busy} onClick={doParse}>
                       Parse
                     </button>
@@ -941,7 +1003,21 @@ export default function Workflow() {
                     <button className="btn btn-secondary w-full" disabled={!parsedCount || busy} onClick={exportTSV}>
                       Export TSV
                     </button>
+                    <button
+                      className="btn btn-accent w-full"
+                      disabled={!projectId || busy || !canApkg}
+                      title={!canApkg ? "APKG export is available on paid plans" : "Export Anki .apkg (paid)"}
+                      onClick={() => void exportAPKG()}
+                    >
+                      Export APKG
+                    </button>
                   </div>
+
+                  {!canApkg && user ? (
+                    <div className="text-xs opacity-70">
+                      <span className="font-semibold">APKG export</span> is a paid feature. Upgrade in Account to enable it.
+                    </div>
+                  ) : null}
 
                   {/* AI buttons */}
                   <div className="space-y-3">
@@ -1119,11 +1195,19 @@ export default function Workflow() {
                             Apply
                           </button>
 
-                          <button className="btn btn-xs btn-ghost" disabled={busy || isAiLoading} onClick={() => toggleEdit(c.id)}>
+                          <button
+                            className="btn btn-xs btn-ghost"
+                            disabled={busy || isAiLoading}
+                            onClick={() => toggleEdit(c.id)}
+                          >
                             {isEditing ? "Close" : "Edit"}
                           </button>
 
-                          <button className="btn btn-xs btn-ghost" disabled={busy || isAiLoading} onClick={() => void deleteCard(c.id)}>
+                          <button
+                            className="btn btn-xs btn-ghost"
+                            disabled={busy || isAiLoading}
+                            onClick={() => void deleteCard(c.id)}
+                          >
                             Delete
                           </button>
                         </div>
@@ -1208,10 +1292,14 @@ export default function Workflow() {
                       )}
 
                       <div className="text-xs font-semibold opacity-70">Front (preview)</div>
-                      <pre className="whitespace-pre-wrap text-sm leading-relaxed bg-base-100/40 border border-base-300 rounded-xl p-3">{previewFront}</pre>
+                      <pre className="whitespace-pre-wrap text-sm leading-relaxed bg-base-100/40 border border-base-300 rounded-xl p-3">
+                        {previewFront}
+                      </pre>
 
                       <div className="text-xs font-semibold opacity-70">Back (preview)</div>
-                      <pre className="whitespace-pre-wrap text-sm leading-relaxed bg-base-100/40 border border-base-300 rounded-xl p-3">{previewBack}</pre>
+                      <pre className="whitespace-pre-wrap text-sm leading-relaxed bg-base-100/40 border border-base-300 rounded-xl p-3">
+                        {previewBack}
+                      </pre>
 
                       {isEditing && (
                         <div className="rounded-2xl border border-base-300 bg-base-100/50 p-3 space-y-3">
