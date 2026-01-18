@@ -316,9 +316,18 @@ function fieldToHtml(field: string) {
 
 // --- APKG download helper ---
 async function downloadApkg(projectId: number) {
-  const resp = await fetch(`${import.meta.env.VITE_API_BASE || ""}/export/apkg/${projectId}`, {
+  // Always prefer explicit API base. If env isn't set, fall back to production API domain.
+  const rawBase = (import.meta as any).env?.VITE_API_BASE;
+  const API_BASE = (rawBase && String(rawBase).trim()) || "https://api.n2a.com.au";
+
+  const url = `${API_BASE.replace(/\/+$/, "")}/export/apkg/${projectId}`;
+
+  const resp = await fetch(url, {
     method: "GET",
-    credentials: "include",
+    credentials: "include", // keep if your backend uses cookies
+    headers: {
+      Accept: "application/octet-stream",
+    },
   });
 
   if (!resp.ok) {
@@ -331,20 +340,44 @@ async function downloadApkg(projectId: number) {
     }
   }
 
+  // ✅ Guard: if we accidentally hit the frontend, it will return HTML
+  const ct = (resp.headers.get("content-type") || "").toLowerCase();
+  if (ct.includes("text/html")) {
+    const text = await resp.text();
+    const firstLine = (text.split("\n")[0] || "").slice(0, 120);
+    throw new Error(
+      `APKG export returned HTML (wrong API base / routing). URL was: ${url}. First line: ${firstLine}`
+    );
+  }
+
   const blob = await resp.blob();
+
+  // extra safety: APKG is a zip; first 2 bytes should be PK
+  const head = new Uint8Array(await blob.slice(0, 2).arrayBuffer());
+  const looksZip = head.length === 2 && head[0] === 0x50 && head[1] === 0x4b; // "PK"
+  if (!looksZip) {
+    // try to decode as text for debugging
+    try {
+      const text = await blob.text();
+      throw new Error(`APKG export did not look like a zip. First 120 chars: ${text.slice(0, 120)}`);
+    } catch {
+      throw new Error("APKG export did not look like a zip file (unexpected response).");
+    }
+  }
 
   // Try extract filename from Content-Disposition
   const cd = resp.headers.get("content-disposition") || "";
   const m = cd.match(/filename="?([^"]+)"?/i);
   const filename = m?.[1] || "n2a_deck.apkg";
 
-  const url = URL.createObjectURL(blob);
+  const dlUrl = URL.createObjectURL(blob);
   const a = document.createElement("a");
-  a.href = url;
+  a.href = dlUrl;
   a.download = filename;
   a.click();
-  URL.revokeObjectURL(url);
+  URL.revokeObjectURL(dlUrl);
 }
+
 
 export default function Workflow() {
   const [user, setUser] = React.useState<any>(null);
