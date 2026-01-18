@@ -13,6 +13,13 @@ type McqStyle = "1)" | "1." | "A)" | "a)" | "A." | "a.";
 type FilterMode = "all" | "qa" | "mcq";
 type AIMode = "content" | "format" | "both";
 
+/**
+ * ✅ New: MCQ answer export mode
+ * - label_only: keep answers as "B" / "2" (or styled label)
+ * - label_plus_text: expand "B" -> "B) <option text>" if options are available
+ */
+type McqAnswerMode = "label_only" | "label_plus_text";
+
 type Card = {
   id: string; // UI keeps string IDs; persisted IDs are numeric-as-string
   card_type: CardType;
@@ -312,6 +319,62 @@ function formatMcqAnswer(back: string, style: McqStyle): string {
   return rest ? `${label} ${rest}` : label;
 }
 
+/**
+ * ✅ New: if back is ONLY a label (e.g. "B" or "2"), optionally append the option text:
+ *   "B" -> "B) <option text>"
+ *
+ * We use the ORIGINAL card front (as stored), because it may contain raw option lines,
+ * and we normalize them on-the-fly.
+ */
+function expandMcqAnswerIfLabelOnly(args: {
+  cardFront: string;
+  cardBack: string;
+  style: McqStyle;
+  mode: McqAnswerMode;
+}): string {
+  const { cardFront, cardBack, style, mode } = args;
+
+  // If user didn't request expansion, return the normal formatted answer
+  const base = formatMcqAnswer(cardBack, style);
+  if (mode !== "label_plus_text") return base;
+
+  // Only expand if the answer is just a label (after formatting), no trailing text
+  const trimmed = (base || "").trim();
+  if (!trimmed) return trimmed;
+
+  // Allow "B", "B)", "B.", "2", "2)", "2."
+  const m = trimmed.match(/^([A-Za-z]|\d+)\s*([)\.])?$/);
+  if (!m) return base;
+
+  const token = m[1];
+  const isNum = /^\d+$/.test(token);
+  const isLetter = /^[A-Za-z]$/.test(token);
+
+  // Get options (formatted consistently)
+  const frontFormatted = formatMcqOptions(cardFront, style);
+  const lines = frontFormatted.split("\n");
+  if (lines.length <= 1) return base;
+
+  const optLines = lines.slice(1).map((l) => l.trim()).filter(Boolean);
+  if (!optLines.length) return base;
+
+  let idx = 0;
+  if (isNum) {
+    idx = Math.max(parseInt(token, 10) - 1, 0);
+  } else if (isLetter) {
+    idx = token.toUpperCase().charCodeAt(0) - "A".charCodeAt(0);
+  } else {
+    return base;
+  }
+
+  if (idx < 0 || idx >= optLines.length) return base;
+
+  // optLines are like "B) Compton scatter" already
+  const optLine = optLines[idx];
+  // If somehow it's missing a label, still just append raw
+  return optLine ? optLine : base;
+}
+
 function normFlag(flag: string | null | undefined) {
   return (flag ?? "").trim().toLowerCase();
 }
@@ -416,6 +479,7 @@ export default function Workflow() {
 
   // Controls
   const [mcqStyle, setMcqStyle] = React.useState<McqStyle>("1)");
+  const [mcqAnswerMode, setMcqAnswerMode] = React.useState<McqAnswerMode>("label_only"); // ✅ new
   const [englishVariant, setEnglishVariant] = React.useState<EnglishVariant>("uk_au");
   const [filterMode, setFilterMode] = React.useState<FilterMode>("all");
 
@@ -660,11 +724,19 @@ export default function Workflow() {
 
   // ✅ Export as TSV with HTML formatting for Anki (newline -> <br>)
   function exportTSV() {
-    const exportedCards = cards.map((c) =>
-      c.card_type === "mcq"
-        ? { ...c, front: formatMcqOptions(c.front, mcqStyle), back: formatMcqAnswer(c.back, mcqStyle) }
-        : c
-    );
+    const exportedCards = cards.map((c) => {
+      if (c.card_type !== "mcq") return c;
+
+      const front = formatMcqOptions(c.front, mcqStyle);
+      const back = expandMcqAnswerIfLabelOnly({
+        cardFront: c.front,
+        cardBack: c.back,
+        style: mcqStyle,
+        mode: mcqAnswerMode,
+      });
+
+      return { ...c, front, back };
+    });
 
     // No header row (prevents importing an extra card).
     const tsv = exportedCards.map((c) => `${fieldToHtml(c.front)}\t${fieldToHtml(c.back)}`).join("\n");
@@ -1030,21 +1102,43 @@ export default function Workflow() {
                       </select>
                     </div>
 
-                    <div className="rounded-2xl border border-base-300 bg-base-200/40 p-4 space-y-2">
-                      <div className="text-sm font-semibold">MCQ option style</div>
-                      <div className="text-xs opacity-70">Affects preview/export and what AI sees.</div>
-                      <select
-                        className="select select-bordered w-full"
-                        value={mcqStyle}
-                        onChange={(e) => setMcqStyle(e.target.value as McqStyle)}
-                      >
-                        <option value="1)">1)</option>
-                        <option value="1.">1.</option>
-                        <option value="A)">A)</option>
-                        <option value="a)">a)</option>
-                        <option value="A.">A.</option>
-                        <option value="a.">a.</option>
-                      </select>
+                    {/* ✅ MERGED MCQ FORMATTING CARD */}
+                    <div className="rounded-2xl border border-base-300 bg-base-200/40 p-4 space-y-3">
+                      <div>
+                        <div className="text-sm font-semibold">MCQ formatting</div>
+                        <div className="text-xs opacity-70">Affects preview/export and what AI sees.</div>
+                      </div>
+
+                      <div className="space-y-1">
+                        <div className="text-xs font-semibold opacity-70">Option labels</div>
+                        <select
+                          className="select select-bordered w-full"
+                          value={mcqStyle}
+                          onChange={(e) => setMcqStyle(e.target.value as McqStyle)}
+                        >
+                          <option value="1)">1)</option>
+                          <option value="1.">1.</option>
+                          <option value="A)">A)</option>
+                          <option value="a)">a)</option>
+                          <option value="A.">A.</option>
+                          <option value="a.">a.</option>
+                        </select>
+                      </div>
+
+                      <div className="space-y-1">
+                        <div className="text-xs font-semibold opacity-70">Answer export</div>
+                        <select
+                          className="select select-bordered w-full"
+                          value={mcqAnswerMode}
+                          onChange={(e) => setMcqAnswerMode(e.target.value as McqAnswerMode)}
+                        >
+                          <option value="label_only">Label only (e.g. B)</option>
+                          <option value="label_plus_text">Label + option text (e.g. B Compton scatter)</option>
+                        </select>
+                        <div className="text-[11px] opacity-60">
+                          If the answer is just a label (B/2), N2A can optionally append the matching option text.
+                        </div>
+                      </div>
                     </div>
 
                     <div className="rounded-2xl border border-base-300 bg-base-200/40 p-4 space-y-2">
@@ -1161,7 +1255,9 @@ export default function Workflow() {
             <div className="card bg-base-200/40 border border-base-300 rounded-2xl">
               <div className="card-body text-center space-y-2">
                 <div className="text-lg font-semibold">No cards to show</div>
-                <div className="text-sm opacity-70">{cards.length ? "Try changing the Filter." : "Upload a Markdown export, then press Parse."}</div>
+                <div className="text-sm opacity-70">
+                  {cards.length ? "Try changing the Filter." : "Upload a Markdown export, then press Parse."}
+                </div>
               </div>
             </div>
           ) : (
@@ -1172,7 +1268,16 @@ export default function Workflow() {
                 const isAiLoading = aiLoadingIds.has(c.id);
 
                 const previewFront = c.card_type === "mcq" ? formatMcqOptions(c.front, mcqStyle) : c.front;
-                const previewBack = c.card_type === "mcq" ? formatMcqAnswer(c.back, mcqStyle) : c.back;
+
+                const previewBack =
+                  c.card_type === "mcq"
+                    ? expandMcqAnswerIfLabelOnly({
+                        cardFront: c.front,
+                        cardBack: c.back,
+                        style: mcqStyle,
+                        mode: mcqAnswerMode,
+                      })
+                    : c.back;
 
                 const hasAnyAiField =
                   c.ai_changed !== undefined ||
@@ -1219,7 +1324,9 @@ export default function Workflow() {
                               setStatus("Running AI review (content)…");
                               void aiReviewCard(c.id, false, "content")
                                 .then(() => setStatus("AI review complete."))
-                                .catch((e: any) => setStatus(e?.message ? `AI Review failed: ${e.message}` : "AI Review failed."));
+                                .catch((e: any) =>
+                                  setStatus(e?.message ? `AI Review failed: ${e.message}` : "AI Review failed.")
+                                );
                             }}
                           >
                             Review
@@ -1232,7 +1339,9 @@ export default function Workflow() {
                               setStatus("Running AI review (format)…");
                               void aiReviewCard(c.id, false, "format")
                                 .then(() => setStatus("AI review complete."))
-                                .catch((e: any) => setStatus(e?.message ? `AI Review failed: ${e.message}` : "AI Review failed."));
+                                .catch((e: any) =>
+                                  setStatus(e?.message ? `AI Review failed: ${e.message}` : "AI Review failed.")
+                                );
                             }}
                           >
                             Format
@@ -1246,7 +1355,9 @@ export default function Workflow() {
                               setStatus("Applying AI (both)…");
                               void aiReviewCard(c.id, true, "both")
                                 .then(() => setStatus("AI applied."))
-                                .catch((e: any) => setStatus(e?.message ? `AI Apply failed: ${e.message}` : "AI Apply failed."));
+                                .catch((e: any) =>
+                                  setStatus(e?.message ? `AI Apply failed: ${e.message}` : "AI Apply failed.")
+                                );
                             }}
                           >
                             Apply
