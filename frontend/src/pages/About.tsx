@@ -124,7 +124,7 @@ export default function About() {
 
                 <div className="pt-2">
                   <Link to="/contact" className="btn btn-primary">
-                    Contact / Feedback
+                    Contact
                   </Link>
                 </div>
               </div>

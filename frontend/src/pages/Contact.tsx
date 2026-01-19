@@ -18,8 +18,8 @@ export default function Contact() {
               Get in <span className="text-primary">touch</span>
             </h1>
             <p className="max-w-2xl mx-auto opacity-80 text-base md:text-lg leading-relaxed">
-              Questions, feedback, feature ideas, or bug reports — happy to hear from you.
-              N2A is actively evolving and user input genuinely helps shape the roadmap.
+              Questions, feedback, feature ideas, want to join the team, or bug reports — happy to hear from you.
+              N2A is actively evolving and user input helps shape our future.
             </p>
 
             <div className="flex flex-col sm:flex-row justify-center gap-3 pt-2">

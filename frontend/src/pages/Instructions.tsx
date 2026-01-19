@@ -58,7 +58,7 @@ const STEPS: Step[] = [
     // ✅ Use /public-relative URL (NOT the Windows filesystem path)
     mediaSrc: "/videos/n2a_step2_video.mp4",
     // mediaPoster: "/images/step1_poster.jpg",
-    cta: { label: "Open Workflow", to: "/workflow" },
+    cta: { label: "Account", to: "/account" },
   },
   {
     title: "3) Format your Notion page so N2A can parse it",
@@ -79,7 +79,7 @@ const STEPS: Step[] = [
     mediaSrc: "/videos/n2a_step3_video.mp4",
     // mediaPoster: "/images/step1_poster.jpg",
     cta: {
-      label: "Duplicate the Notion template",
+      label: "N2A Notion template",
       to: NOTION_TEMPLATE_URL,
     },
   },
@@ -428,7 +428,7 @@ export default function Instructions() {
                 Open Workflow
               </Link>
               <Link to="/account" className="btn btn-outline">
-                Account / Plans
+                Account
               </Link>
             </div>
           </div>
