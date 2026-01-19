@@ -334,14 +334,14 @@ function expandMcqAnswerIfLabelOnly(args: {
 }): string {
   const { cardFront, cardBack, style, mode } = args;
 
-  if (mode === "default") return (cardBack ?? "").trim();
+  const original = (cardBack ?? "").trim();
+  if (mode === "default") return original;
 
-  // Normalize label styling if it looks like a label (safe)
-  const base = formatMcqAnswer(cardBack, style);
-  const trimmed = (base || "").trim();
-  if (!trimmed) return trimmed;
+  // Normalize label styling only if it looks label-ish (safe)
+  const base = formatMcqAnswer(original, style).trim();
+  if (!base) return base;
 
-  // Build consistently-labeled options from the question
+  // Build normalized options with the currently selected style
   const frontFormatted = formatMcqOptions(cardFront, style);
   const lines = frontFormatted.split("\n");
   const optLines = lines
@@ -372,15 +372,16 @@ function expandMcqAnswerIfLabelOnly(args: {
     }
   };
 
-  const stripLeadingLabel = (s: string) =>
-    s.replace(/^\s*([A-Za-z]|\d+)[)\.]\s+/, "").trim();
+  const stripLeadingLabel = (s: string) => s.replace(/^\s*([A-Za-z]|\d+)[)\.]\s+/, "").trim();
 
+  // More tolerant normalize for matching option text
   const normalize = (s: string) =>
     s
       .toLowerCase()
-      .replace(/\s+/g, " ")
       .replace(/[“”]/g, '"')
       .replace(/[‘’]/g, "'")
+      .replace(/\s+/g, " ")
+      .replace(/[^\w\s\-+./%()]/g, "") // mild punctuation tolerance
       .trim();
 
   const labelTokenToIndex = (token: string) => {
@@ -389,59 +390,68 @@ function expandMcqAnswerIfLabelOnly(args: {
     return null;
   };
 
-  // Helper: find option index by matching option text
-  const findOptionIndexByText = (answerText: string) => {
-    if (!optLines.length) return -1;
-    const target = normalize(stripLeadingLabel(answerText));
-    if (!target) return -1;
+  // Find index from:
+  // 1) pure label: "B" / "2" / "B)" / "2."
+  // 2) label+text: "B) Compton scatter"
+  // 3) option-only: "Compton scatter"
+  const findIndex = (): number | null => {
+    if (!optLines.length) return null;
+
+    // 1) Pure label token
+    const pureLabel = base.match(/^([A-Za-z]|\d+)\s*([)\.])?$/);
+    if (pureLabel) {
+      const idx = labelTokenToIndex(pureLabel[1]);
+      if (idx == null) return null;
+      return idx >= 0 && idx < optLines.length ? idx : null;
+    }
+
+    // 2) Starts with label+delim (e.g. "B) xxx" or "2. yyy")
+    const withLabel = base.match(/^\s*([A-Za-z]|\d+)\s*[)\.]\s+(.+)$/);
+    if (withLabel) {
+      const idx = labelTokenToIndex(withLabel[1]);
+      if (idx != null && idx >= 0 && idx < optLines.length) return idx;
+
+      // If label is weird, still try matching the text portion
+      const targetText = normalize(withLabel[2]);
+      for (let i = 0; i < optLines.length; i++) {
+        const optText = normalize(stripLeadingLabel(optLines[i]));
+        if (optText && optText === targetText) return i;
+      }
+      return null;
+    }
+
+    // 3) Option-only: match against option text
+    const target = normalize(stripLeadingLabel(base));
+    if (!target) return null;
 
     for (let i = 0; i < optLines.length; i++) {
       const optText = normalize(stripLeadingLabel(optLines[i]));
       if (optText && optText === target) return i;
     }
-    return -1;
+
+    return null;
   };
 
-  // CASE A) Stored answer is a pure label token: A / A) / A. / 2 / 2) / 2.
-  const mLabelOnly = trimmed.match(/^([A-Za-z]|\d+)\s*([)\.])?$/);
-  if (mLabelOnly) {
-    const token = mLabelOnly[1];
-    const idx = labelTokenToIndex(token);
-    if (idx == null) return trimmed;
+  const idx = findIndex();
 
-    if (mode === "label_only") return trimmed;
+  // If we can’t map safely, do nothing (safe fallback)
+  if (idx == null) return base;
 
-    if (!optLines.length || idx < 0 || idx >= optLines.length) return trimmed;
+  const optionLine = optLines[idx]; // e.g. "2) 1.02 MeV"
+  const optionText = stripLeadingLabel(optionLine); // e.g. "1.02 MeV"
 
-    const optLine = optLines[idx]; // e.g. "A) GABA"
-    if (mode === "label_plus_option") return optLine;
-
-    // option_only
-    const optionOnly = stripLeadingLabel(optLine);
-    return optionOnly || trimmed;
+  if (mode === "label_only") {
+    return labelFor(idx);
   }
 
-  // CASE B) Stored answer is not a pure label token
-  // It might be:
-  // - "A) GABA" (already label+option)
-  // - "GABA" (option-only)
-  // - some other string
-  const idxFromText = findOptionIndexByText(trimmed);
-
-  // If we can reverse-map it to an option:
-  if (idxFromText >= 0) {
-    if (mode === "label_only") return labelFor(idxFromText);
-    if (mode === "label_plus_option") return optLines[idxFromText]; // FULL label + option
-    if (mode === "option_only") return stripLeadingLabel(optLines[idxFromText]) || trimmed;
+  if (mode === "option_only") {
+    return optionText || base;
   }
 
-  // If we can't match it to any option, don't force a bad transform.
-  // For option_only, strip label if present; for others, leave as-is.
-  if (mode === "option_only") return stripLeadingLabel(trimmed) || trimmed;
-
-  return trimmed;
+  // mode === "label_plus_option"
+  // ✅ Key fix: ALWAYS output label+option once mapped, even if stored answer was option-only
+  return optionLine || `${labelFor(idx)} ${optionText}`.trim();
 }
-
 
 function normFlag(flag: string | null | undefined) {
   return (flag ?? "").trim().toLowerCase();
@@ -644,6 +654,11 @@ export default function Workflow() {
   const parsedCount = cards.length;
   const canAI = !!user && user.plan && user.plan !== "free" && user.plan !== "guest";
   const canApkg = !!user && user.plan && user.plan !== "free" && user.plan !== "guest";
+
+  // ✅ Dynamic subtitle based on plan
+  const heroSubtitle = canAI
+    ? "Parse locally, edit freely, review with AI, export clean apkg for Anki"
+    : "Parse locally, edit freely, export clean TSV for Anki. AI review and apkg export is available on paid plans";
 
   // ✅ One export button: guests/free => TSV, paid => APKG
   const exportLabel = canApkg ? "Export APKG" : "Export TSV";
@@ -1019,9 +1034,7 @@ export default function Workflow() {
           </div>
 
           <div className="space-y-1">
-            <div className="text-lg font-semibold">
-              {batch.apply ? "Applying AI to all cards…" : "Reviewing all cards…"}
-            </div>
+            <div className="text-lg font-semibold">{batch.apply ? "Applying AI to all cards…" : "Reviewing all cards…"}</div>
             <div className="text-sm opacity-70">
               Mode: <span className="font-semibold">{batch.mode}</span> • {batch.done}/{batch.total} ({progressPct}%)
               {batch.errors ? ` • errors: ${batch.errors}` : ""}
@@ -1044,10 +1057,9 @@ export default function Workflow() {
           <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight">
             Workflow: <span className="text-primary">Upload</span> → Parse → Review → Export
           </h1>
-          <p className="opacity-75 max-w-2xl mx-auto">
-            Parse locally, edit freely, export clean <span className="font-semibold">TSV (HTML)</span> for Anki. AI review
-            is available on paid plans.
-          </p>
+
+          {/* ✅ Dynamic by plan */}
+          <p className="opacity-75 max-w-2xl mx-auto">{heroSubtitle}</p>
 
           <div className="flex justify-center pt-2">
             <div className={["badge badge-lg", user ? "badge-primary badge-outline" : "badge-ghost"].join(" ")}>
@@ -1073,7 +1085,8 @@ export default function Workflow() {
                 <div className="card-body space-y-4 h-full">
                   <div>
                     <h2 className="text-xl font-bold">1) Upload</h2>
-                    <p className="text-sm opacity-70">Drop your Notion export. We’ll parse it into cards.</p>
+                    {/* ✅ Copy change */}
+                    <p className="text-sm opacity-70">Drop your Notion markdown file</p>
                   </div>
 
                   <UploadBox
@@ -1098,8 +1111,9 @@ export default function Workflow() {
 
                   <div className="rounded-xl border border-base-300 bg-base-200/40 p-3">
                     <div className="text-sm font-semibold">Need a template?</div>
+                    {/* ✅ Copy change */}
                     <div className="text-xs opacity-70 mt-1">
-                      Duplicate the Notion template to copy the exact formatting N2A expects (especially MCQ answers).
+                      Duplicate the FREE notion template to copy the exact formatting N2A expects
                     </div>
 
                     <div className="mt-3 flex flex-col sm:flex-row gap-2">
@@ -1109,7 +1123,8 @@ export default function Workflow() {
                         target="_blank"
                         rel="noopener noreferrer"
                       >
-                        Duplicate the Notion template
+                        {/* ✅ Button text change */}
+                        N2A Notion Template
                       </a>
                     </div>
                   </div>
@@ -1138,11 +1153,7 @@ export default function Workflow() {
                   <div className="flex items-start justify-between gap-3 flex-wrap">
                     <div>
                       <h2 className="text-xl font-bold">2) Parse & Review</h2>
-                      <p className="text-sm opacity-70">
-                        {user
-                          ? "Parse creates a Project and saves cards for persistent AI review."
-                          : "Parse locally, edit, export. Login to persist + AI review."}
-                      </p>
+                      {/* ✅ Removed per request */}
                     </div>
 
                     <div className="flex flex-wrap gap-2">
@@ -1159,9 +1170,19 @@ export default function Workflow() {
 
                   {/* Controls row */}
                   <div className="grid md:grid-cols-3 gap-3">
+                    {/* FILTER */}
                     <div className="rounded-2xl border border-base-300 bg-base-200/40 p-4 space-y-2">
-                      <div className="text-sm font-semibold">Filter</div>
-                      <div className="text-xs opacity-70">Show all cards or a subset.</div>
+                      <div className="flex items-center justify-between">
+                        <div className="text-sm font-semibold">Filter</div>
+
+                        {/* ✅ Helper icon with hover tooltip */}
+                        <div className="tooltip tooltip-left" data-tip="Filter cards by type: All, Q&A, or MCQ">
+                          <button className="btn btn-ghost btn-xs" type="button" aria-label="Filter help">
+                            i
+                          </button>
+                        </div>
+                      </div>
+
                       <select
                         className="select select-bordered w-full"
                         value={filterMode}
@@ -1173,15 +1194,16 @@ export default function Workflow() {
                       </select>
                     </div>
 
-                    {/* ✅ MERGED MCQ FORMATTING CARD */}
+                    {/* ✅ MCQ FORMATTING CARD */}
                     <div className="rounded-2xl border border-base-300 bg-base-200/40 p-4 space-y-3">
                       <div>
-                        <div className="text-sm font-semibold">MCQ formatting</div>
-                        <div className="text-xs opacity-70">Affects preview/export and what AI sees.</div>
+                        {/* ✅ Title change + removed grey text */}
+                        <div className="text-sm font-semibold">Format MCQ Cards</div>
                       </div>
 
                       <div className="space-y-1">
-                        <div className="text-xs font-semibold opacity-70">Option labels</div>
+                        {/* ✅ More intuitive label */}
+                        <div className="text-xs font-semibold opacity-70">Option numbering</div>
                         <select
                           className="select select-bordered w-full"
                           value={mcqStyle}
@@ -1197,7 +1219,21 @@ export default function Workflow() {
                       </div>
 
                       <div className="space-y-1">
-                        <div className="text-xs font-semibold opacity-70">Answer export</div>
+                        <div className="flex items-center justify-between">
+                          {/* ✅ More intuitive label */}
+                          <div className="text-xs font-semibold opacity-70">Answer display</div>
+
+                          {/* ✅ Helper icon with hover tooltip */}
+                          <div
+                            className="tooltip tooltip-left"
+                            data-tip="Controls how MCQ answers are shown: keep original, label only, option text only, or label + option."
+                          >
+                            <button className="btn btn-ghost btn-xs" type="button" aria-label="MCQ answer display help">
+                              i
+                            </button>
+                          </div>
+                        </div>
+
                         <select
                           className="select select-bordered w-full"
                           value={mcqAnswerMode}
@@ -1208,21 +1244,21 @@ export default function Workflow() {
                           <option value="option_only">Option only (e.g. Compton scatter)</option>
                           <option value="label_plus_option">Label + option (e.g. B) Compton scatter)</option>
                         </select>
-                        <div className="text-[11px] opacity-60">
-                          Default does not modify answers. When possible, N2A maps label/text answers to the matching option.
-                        </div>
+                        {/* ✅ Removed grey helper text line per request */}
                       </div>
                     </div>
 
+                    {/* AI ENGLISH */}
                     <div className="rounded-2xl border border-base-300 bg-base-200/40 p-4 space-y-2">
-                      <div className="text-sm font-semibold">AI English (paid)</div>
-                      <div className="text-xs opacity-70">Controls AI output style.</div>
+                      {/* ✅ More intuitive title + removed grey text */}
+                      <div className="text-sm font-semibold">Spelling consistency (paid)</div>
+
                       <select
                         className="select select-bordered w-full"
                         value={englishVariant}
                         onChange={(e) => setEnglishVariant(e.target.value as EnglishVariant)}
                         disabled={!canAI}
-                        title={!canAI ? "Requires a paid plan" : "Choose AI review English"}
+                        title={!canAI ? "Requires a paid plan" : "Choose spelling style for AI output"}
                       >
                         <option value="uk_au">English (UK/AUS)</option>
                         <option value="us">English (US)</option>
@@ -1237,16 +1273,15 @@ export default function Workflow() {
                       Parse
                     </button>
 
+                    {/* ✅ Clear label change */}
                     <button className="btn btn-outline w-full" disabled={busy} onClick={clearAll}>
-                      Clear
+                      Clear Cards
                     </button>
 
                     <button
                       className={exportBtnClass}
                       disabled={!parsedCount || busy || (canApkg && !projectId)}
-                      title={
-                        canApkg && !projectId ? "Parse while logged in to create a Project before exporting APKG" : exportTitle
-                      }
+                      title={canApkg && !projectId ? "Parse while logged in to create a Project before exporting APKG" : exportTitle}
                       onClick={() => void exportByPlan()}
                     >
                       {exportLabel}
@@ -1320,8 +1355,11 @@ export default function Workflow() {
               <h2 className="text-2xl font-extrabold tracking-tight">
                 Cards <span className="text-primary">Preview</span>
               </h2>
+
+              {/* ✅ Updated helper copy */}
               <p className="opacity-70 text-sm">
-                Preview is always shown. Click Edit to modify front/back. Delete removes the card from export.
+                Press Review to run AI content review, press Format to run AI format review, press Apply to apply AI suggested
+                changes, press Edit to modify card, press Delete to remove card from export
               </p>
             </div>
           </div>
@@ -1330,9 +1368,7 @@ export default function Workflow() {
             <div className="card bg-base-200/40 border border-base-300 rounded-2xl">
               <div className="card-body text-center space-y-2">
                 <div className="text-lg font-semibold">No cards to show</div>
-                <div className="text-sm opacity-70">
-                  {cards.length ? "Try changing the Filter." : "Upload a Markdown export, then press Parse."}
-                </div>
+                <div className="text-sm opacity-70">{cards.length ? "Try changing the Filter." : "Upload a Markdown export, then press Parse."}</div>
               </div>
             </div>
           ) : (

@@ -9,6 +9,7 @@ import Account from "./pages/Account";
 import Instructions from "./pages/Instructions";
 import About from "./pages/About";
 import Contact from "./pages/Contact";
+import Pricing from "./pages/Pricing"; // ✅ NEW
 
 import Navbar from "./components/Navbar";
 import Footer from "./components/Footer"; // ✅ ensure this exists
@@ -33,6 +34,7 @@ export default function App() {
       <main className="flex-1">
         <Routes>
           <Route path="/" element={<Home />} />
+          <Route path="/pricing" element={<Pricing />} /> {/* ✅ NEW */}
           <Route path="/workflow" element={<Workflow />} />
           <Route path="/instructions" element={<Instructions />} />
           <Route path="/account" element={<Account />} />
