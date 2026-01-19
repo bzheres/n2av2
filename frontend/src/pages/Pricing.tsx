@@ -108,12 +108,10 @@ function formatNumber(n: number) {
   return n.toLocaleString("en-AU");
 }
 
+// ✅ Compare-table emphasis (no border / ring). Just subtle bg + scale.
 function colEmphasisClass(selected: PlanKey, col: PlanKey) {
   const is = selected === col;
-  return [
-    "transition-all duration-200",
-    is ? "scale-[1.03] ring-2 ring-primary/30 rounded-xl bg-primary/5" : "opacity-90",
-  ].join(" ");
+  return ["transition-all duration-200", is ? "scale-[1.02] bg-primary/5" : "opacity-90"].join(" ");
 }
 
 export default function Pricing() {
@@ -214,7 +212,7 @@ export default function Pricing() {
       {/* PLAN PICKER + SUMMARY */}
       <section className="px-4 md:px-6 lg:px-8 py-10 md:py-12 bg-base-200">
         <div className="max-w-7xl 2xl:max-w-screen-2xl mx-auto grid lg:grid-cols-[1fr_420px] gap-6 items-start">
-          {/* LEFT: plan cards + (on smaller widths) selected-plan summary + compare */}
+          {/* LEFT */}
           <div className="space-y-4 min-w-0">
             {/* Cards */}
             <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 xl:grid-cols-4">
@@ -271,8 +269,7 @@ export default function Pricing() {
               })}
             </div>
 
-            {/* ✅ Selected-plan summary appears ABOVE compare on smaller widths.
-                On lg+ it moves into the right sticky aside. */}
+            {/* Mobile selected-plan summary */}
             <div className="block lg:hidden">
               <div className="card bg-base-100 border border-base-300 rounded-2xl">
                 <div className="card-body space-y-3 min-w-0">
@@ -397,7 +394,6 @@ export default function Pricing() {
                         ))}
                       </tr>
 
-                      {/* ✅ Split export into two rows */}
                       <tr>
                         <td className="font-semibold">Export as TSV</td>
                         {PLANS.map((p) => (
