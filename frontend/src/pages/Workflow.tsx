@@ -1239,10 +1239,10 @@ export default function Workflow() {
                           value={mcqAnswerMode}
                           onChange={(e) => setMcqAnswerMode(e.target.value as McqAnswerMode)}
                         >
-                          <option value="default">Default (keep imported answer)</option>
-                          <option value="label_only">Label only (e.g. B)</option>
-                          <option value="option_only">Option only (e.g. Compton scatter)</option>
-                          <option value="label_plus_option">Label + option (e.g. B) Compton scatter)</option>
+                          <option value="default">As Imported</option>
+                          <option value="label_only">Option only</option>
+                          <option value="option_only">Answer only</option>
+                          <option value="label_plus_option">Option and Answer</option>
                         </select>
                         {/* ✅ Removed grey helper text line per request */}
                       </div>
@@ -1251,7 +1251,7 @@ export default function Workflow() {
                     {/* AI ENGLISH */}
                     <div className="rounded-2xl border border-base-300 bg-base-200/40 p-4 space-y-2">
                       {/* ✅ More intuitive title + removed grey text */}
-                      <div className="text-sm font-semibold">Spelling consistency (paid)</div>
+                      <div className="text-sm font-semibold">Spelling consistency</div>
 
                       <select
                         className="select select-bordered w-full"
@@ -1260,8 +1260,8 @@ export default function Workflow() {
                         disabled={!canAI}
                         title={!canAI ? "Requires a paid plan" : "Choose spelling style for AI output"}
                       >
-                        <option value="uk_au">English (UK/AUS)</option>
-                        <option value="us">English (US)</option>
+                        <option value="uk_au">AUS/UK spelling</option>
+                        <option value="us">US spelling</option>
                       </select>
                       {!canAI && <div className="text-xs opacity-70">Subscribe in Account to enable this.</div>}
                     </div>
