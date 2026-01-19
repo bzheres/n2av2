@@ -4,7 +4,6 @@ import { apiFetch } from "../api";
 import { useAuth } from "../auth_state";
 import Seo from "../components/Seo";
 
-
 type PlanKey = "free" | "silver" | "gold" | "platinum";
 
 type UsageResponse = {
@@ -172,28 +171,46 @@ export default function Account() {
       title: "Free",
       subtitle: "Everything you need to generate and export cards.",
       priceLabel: "$0",
-      features: ["Upload Notion Markdown export", "Parse Q&A and MCQ cards", "Preview, edit & delete cards", "Export CSV for Anki"],
+      features: ["Upload Notion Markdown export", "Parse Q&A and MCQ cards", "Preview, edit & delete cards", "Export TSV (HTML) for Anki import"],
     },
     {
       key: "silver",
       title: "Silver",
       subtitle: "AI review for smaller projects.",
       priceLabel: "$5",
-      features: ["Everything in Free", "Up to 2,000 AI reviews / month", "AI review modes: content / format / both", "Apply AI suggestions"],
+      features: [
+        "Everything in Free",
+        "Up to 2,000 AI reviews / month",
+        "Export apkg for instant Anki import",
+        "AI review modes: content / format / both",
+        "Apply AI suggestions",
+      ],
     },
     {
       key: "gold",
       title: "Gold",
       subtitle: "Best value for regular studying.",
       priceLabel: "$7",
-      features: ["Everything in Silver", "Up to 6,000 AI reviews / month", "AI review modes: content / format / both", "Apply AI suggestions"],
+      features: [
+        "Everything in Silver",
+        "Up to 6,000 AI reviews / month",
+        "Export apkg for instant Anki import",
+        "AI review modes: content / format / both",
+        "Apply AI suggestions",
+      ],
     },
     {
       key: "platinum",
       title: "Platinum",
       subtitle: "Power users + heavy AI review.",
       priceLabel: "$10",
-      features: ["Everything in Gold", "Up to 12,000 AI reviews / month", "AI review modes: content / format / both", "Apply AI suggestions"],
+      features: [
+        "Everything in Gold",
+        "Up to 12,000 AI reviews / month",
+        "Export apkg for instant Anki import",
+        "AI review modes: content / format / both",
+        "Apply AI suggestions",
+      ],
     },
   ];
 
@@ -226,12 +243,9 @@ export default function Account() {
       return (
         <div className="space-y-2">
           <button className="btn btn-primary w-full" onClick={doPortal} disabled={portalBusy}>
-            {portalBusy ? "Opening…" : "Manage / cancel subscription"}
+            {portalBusy ? "Opening…" : "Manage subscription"}
           </button>
-          <div className="text-xs opacity-70">
-            Cancel or change plans in the Stripe Customer Portal. If you cancel, your plan will revert to{" "}
-            <span className="font-semibold">Free</span> at the end of the current billing period.
-          </div>
+          {/* ✅ removed grey text block under current plan */}
         </div>
       );
     }
@@ -262,15 +276,9 @@ export default function Account() {
 
   return (
     <>
-      <Seo
-        title="Account"
-        description="Manage your N2A account, subscription, and AI review usage."
-        canonicalPath="/account"
-        noindex
-      />
+      <Seo title="Account" description="Manage your N2A account, subscription, and AI review usage." canonicalPath="/account" noindex />
 
       <div className="-mx-4 md:-mx-6 lg:-mx-8 space-y-10">
-
         <section className="px-4 md:px-6 lg:px-8 py-10 bg-base-200">
           <div className="max-w-6xl mx-auto">
             <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
@@ -284,7 +292,7 @@ export default function Account() {
               {user && (
                 <div className="flex gap-2 flex-wrap">
                   <button className="btn btn-outline" onClick={doPortal} disabled={portalBusy}>
-                    {portalBusy ? "Opening…" : "Manage / cancel subscription"}
+                    {portalBusy ? "Opening…" : "Manage subscription"}
                   </button>
 
                   <button className="btn btn-outline" onClick={refreshUsage} disabled={usageBusy}>
@@ -456,8 +464,6 @@ export default function Account() {
                       <div className="text-sm opacity-70">Tier</div>
                       <div className="font-semibold text-lg text-primary">{planLabel(currentPlan)}</div>
                     </div>
-
-                    {/* ✅ removed Stripe linked box */}
                   </div>
 
                   <div className="divider">Usage</div>
@@ -497,9 +503,7 @@ export default function Account() {
               <div className="flex items-end justify-between gap-4 flex-wrap">
                 <div>
                   <h3 className="text-2xl font-bold">Plans</h3>
-                  <p className="opacity-80 text-sm">
-                    Upgrade for AI Review. You can change or cancel any time via the Stripe Customer Portal.
-                  </p>
+                  <p className="opacity-80 text-sm">Upgrade for AI Review. You can change or cancel any time.</p>
                 </div>
                 {user && <div className="badge badge-primary badge-outline">Current: {planLabel(currentPlan)}</div>}
               </div>
@@ -540,14 +544,12 @@ export default function Account() {
                 })}
               </div>
 
-              {/* ✅ explicit cancel hint (without changing Stripe/auth logic) */}
               {user && currentPlan !== "free" && (
                 <div className="rounded-2xl border border-base-300 bg-base-200/40 p-4">
                   <div className="font-semibold">Cancel subscription</div>
                   <div className="text-sm opacity-80 mt-1">
-                    To cancel, open <span className="font-semibold">Manage / cancel subscription</span> above. Stripe will
-                    handle cancellation and billing. After cancellation, your plan will revert to{" "}
-                    <span className="font-semibold">Free</span> at the end of your billing period.
+                    To cancel, press <span className="font-semibold">Manage subscription</span> above. If you cancel, your
+                    plan reverts to the <span className="font-semibold">Free Plan</span> at the end of the billing period.
                   </div>
                 </div>
               )}
