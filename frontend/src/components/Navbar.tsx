@@ -68,9 +68,6 @@ export default function Navbar() {
   const navLinks = (
     <>
       <li>
-        <NavLink to="/pricing">Pricing</NavLink> {/* ✅ NEW */}
-      </li>
-      <li>
         <NavLink to="/instructions">Instructions</NavLink>
       </li>
       <li>
@@ -81,6 +78,9 @@ export default function Navbar() {
       </li>
       <li>
         <NavLink to="/about">About</NavLink>
+      </li>
+      <li>
+        <NavLink to="/pricing">Pricing</NavLink>
       </li>
     </>
   );

@@ -33,7 +33,6 @@ type Plan = {
   title: string;
   subtitle: string;
   priceLabel: string;
-  badge?: string;
   highlight?: boolean;
   aiReviewsPerMonth: number;
   features: string[];
@@ -72,8 +71,7 @@ const PLANS: Plan[] = [
     subtitle: "Best value for regular studying and repeated review cycles.",
     priceLabel: "$7",
     aiReviewsPerMonth: 6000,
-    badge: "Best value",
-    highlight: true,
+    highlight: true, // ✅ Best value highlight (border only; no sticker)
     features: [
       "Everything in Silver",
       "Up to 6,000 AI reviews / month",
@@ -98,10 +96,15 @@ const PLANS: Plan[] = [
 
 function planCardClass(active: boolean, highlight?: boolean) {
   return [
-    "card rounded-2xl border transition-all duration-200",
-    active ? "bg-base-200 border-primary ring-1 ring-primary/30" : "bg-base-200/60 border-base-300",
+    "card rounded-2xl border transition-all duration-200 h-full",
+    // ✅ keep cards roomy + prevent narrow/overflow look
+    "min-w-0",
+    // ✅ selection styling
+    active ? "bg-base-200 ring-1 ring-primary/30" : "bg-base-200/60",
+    // ✅ highlight (best value): strong primary border
+    highlight ? "border-primary ring-1 ring-primary/30 shadow-lg shadow-primary/10" : "border-base-300",
+    // ✅ hover
     "hover:-translate-y-1 hover:bg-base-200 hover:border-primary/40",
-    highlight ? "shadow-lg shadow-primary/10" : "",
   ].join(" ");
 }
 
@@ -168,25 +171,23 @@ export default function Pricing() {
         title="Pricing"
         description="Compare N2A plans (Free, Silver, Gold, Platinum). Upgrade to unlock optional AI review for your Notion → Anki flashcards."
         canonicalPath="/pricing"
-        />
+      />
 
       {/* HERO */}
       <section className="px-4 md:px-6 lg:px-8 py-12 md:py-16 bg-base-100">
         <div className="max-w-6xl mx-auto text-center space-y-4">
           <h1 className="text-4xl md:text-5xl font-extrabold tracking-tight">
-            Simple <span className="text-primary">pricing</span> for real study workflows
+            <span className="text-primary">N2A</span> pricing plans
           </h1>
 
           <p className="max-w-3xl mx-auto opacity-80 text-base md:text-lg leading-relaxed">
             The core workflow is usable on Free. Upgrade only if you want optional AI review for your cards.
           </p>
 
+          {/* ✅ Button row (middle removed) */}
           <div className="flex flex-col sm:flex-row justify-center gap-3 pt-2">
             <Link to="/workflow" className="btn btn-primary">
               Try Workflow
-            </Link>
-            <Link to="/instructions" className="btn btn-outline">
-              See formatting rules
             </Link>
             <Link to="/account" className="btn">
               Account
@@ -211,10 +212,12 @@ export default function Pricing() {
 
       {/* PLAN PICKER + SUMMARY */}
       <section className="px-4 md:px-6 lg:px-8 py-10 md:py-12 bg-base-200">
-        <div className="max-w-6xl mx-auto grid lg:grid-cols-[1fr_360px] gap-6 items-start">
+        {/* ✅ Make the full layout less narrow on large screens */}
+        <div className="max-w-7xl 2xl:max-w-screen-2xl mx-auto grid lg:grid-cols-[1fr_420px] gap-6 items-start">
           {/* LEFT: plan cards */}
-          <div className="space-y-4">
-            <div className="grid md:grid-cols-2 xl:grid-cols-4 gap-4">
+          <div className="space-y-4 min-w-0">
+            {/* ✅ Responsive grid that avoids narrow cards / overflow */}
+            <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 xl:grid-cols-4">
               {PLANS.map((p) => {
                 const active = selected === p.key;
                 const isCurrent = user && currentPlan === p.key;
@@ -227,25 +230,24 @@ export default function Pricing() {
                     onClick={() => setSelected(p.key)}
                     aria-pressed={active}
                   >
-                    <div className="card-body text-left space-y-3">
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <div className="text-xl font-bold">{p.title}</div>
-                          <div className="text-sm opacity-70">{p.subtitle}</div>
+                    <div className="card-body text-left space-y-3 min-w-0">
+                      <div className="flex items-start justify-between gap-3 min-w-0">
+                        <div className="min-w-0">
+                          <div className="text-xl font-bold break-words">{p.title}</div>
+                          <div className="text-sm opacity-70 break-words">{p.subtitle}</div>
                         </div>
 
-                        <div className="flex flex-col items-end gap-1">
-                          {p.badge && <div className="badge badge-primary">{p.badge}</div>}
+                        <div className="flex flex-col items-end gap-1 shrink-0">
                           {isCurrent && <div className="badge badge-outline">Current</div>}
                         </div>
                       </div>
 
-                      <div className="mt-1">
-                        <div className="text-3xl font-extrabold">
+                      <div className="mt-1 min-w-0">
+                        <div className="text-3xl font-extrabold break-words">
                           {p.priceLabel}
                           {p.key !== "free" ? <span className="text-sm font-semibold opacity-70"> / month</span> : null}
                         </div>
-                        <div className="text-sm opacity-80 mt-1">
+                        <div className="text-sm opacity-80 mt-1 break-words">
                           AI reviews:{" "}
                           <span className="font-semibold">
                             {p.aiReviewsPerMonth ? formatNumber(p.aiReviewsPerMonth) : "0"}
@@ -254,9 +256,11 @@ export default function Pricing() {
                         </div>
                       </div>
 
-                      <ul className="text-sm opacity-80 space-y-1 list-disc list-inside">
+                      <ul className="text-sm opacity-80 space-y-1 list-disc list-inside min-w-0">
                         {p.features.slice(0, 4).map((f) => (
-                          <li key={f}>{f}</li>
+                          <li key={f} className="break-words">
+                            {f}
+                          </li>
                         ))}
                       </ul>
 
@@ -273,7 +277,7 @@ export default function Pricing() {
                 <div className="flex items-end justify-between gap-4 flex-wrap">
                   <div>
                     <h2 className="text-2xl font-bold">Compare plans</h2>
-                    <p className="text-sm opacity-70">Free covers the workflow. Paid tiers add optional AI review.</p>
+                    {/* ✅ removed: "Free covers the workflow..." */}
                   </div>
                   <div className="badge badge-outline">
                     Selected: <span className="ml-1 font-semibold">{planLabel(selected)}</span>
@@ -353,7 +357,8 @@ export default function Pricing() {
                 <details className="collapse collapse-arrow border border-base-300 bg-base-200/40 rounded-xl">
                   <summary className="collapse-title text-sm font-semibold">Do I need an account to use N2A?</summary>
                   <div className="collapse-content text-sm opacity-80">
-                    No — you can use Workflow in guest mode. An account is required to subscribe and use AI review.
+                    No — you can use Workflow in guest mode. An account is required to subscribe, export in apkg format,
+                    and utilise AI reviews.
                   </div>
                 </details>
 
@@ -368,8 +373,8 @@ export default function Pricing() {
                 <details className="collapse collapse-arrow border border-base-300 bg-base-200/40 rounded-xl">
                   <summary className="collapse-title text-sm font-semibold">Can I cancel anytime?</summary>
                   <div className="collapse-content text-sm opacity-80">
-                    Yes — manage/cancel in the Stripe Customer Portal. If you cancel, your plan reverts to Free at the end
-                    of the billing period.
+                    Yes — manage your subscription by going to account &gt; pressing manage subscription &gt;
+                    unsubscribe. If you cancel, your plan reverts to the Free Plan at the end of the billing period.
                   </div>
                 </details>
               </div>
@@ -377,25 +382,24 @@ export default function Pricing() {
           </div>
 
           {/* RIGHT: sticky summary / CTA */}
-          <aside className="lg:sticky lg:top-24 space-y-4">
+          <aside className="lg:sticky lg:top-24 space-y-4 min-w-0">
             <div className="card bg-base-100 border border-base-300 rounded-2xl">
-              <div className="card-body space-y-3">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
+              <div className="card-body space-y-3 min-w-0">
+                <div className="flex items-start justify-between gap-3 min-w-0">
+                  <div className="min-w-0">
                     <div className="text-sm opacity-70">Selected plan</div>
-                    <div className="text-2xl font-extrabold">{selectedPlan.title}</div>
-                    <div className="text-sm opacity-70">{selectedPlan.subtitle}</div>
+                    <div className="text-2xl font-extrabold break-words">{selectedPlan.title}</div>
+                    <div className="text-sm opacity-70 break-words">{selectedPlan.subtitle}</div>
                   </div>
-                  {selectedPlan.badge && <div className="badge badge-primary">{selectedPlan.badge}</div>}
                 </div>
 
-                <div className="rounded-xl border border-base-300 bg-base-200/40 p-3">
+                <div className="rounded-xl border border-base-300 bg-base-200/40 p-3 min-w-0">
                   <div className="text-sm opacity-70">Price</div>
-                  <div className="text-3xl font-extrabold">
+                  <div className="text-3xl font-extrabold break-words">
                     {selectedPlan.priceLabel}
                     {selectedPlan.key !== "free" ? <span className="text-sm font-semibold opacity-70"> / month</span> : null}
                   </div>
-                  <div className="text-sm opacity-80 mt-1">
+                  <div className="text-sm opacity-80 mt-1 break-words">
                     AI reviews:{" "}
                     <span className="font-semibold">
                       {selectedPlan.aiReviewsPerMonth ? formatNumber(selectedPlan.aiReviewsPerMonth) : "0"}
@@ -444,13 +448,7 @@ export default function Pricing() {
               </div>
             </div>
 
-            <div className="rounded-2xl border border-base-300 bg-base-200/40 p-4">
-              <div className="font-semibold">Tip</div>
-              <div className="text-sm opacity-80 mt-1">
-                If you want maximum conversion, link to <span className="font-semibold">/pricing</span> from the navbar
-                and homepage.
-              </div>
-            </div>
+            {/* ✅ removed the "Tip" box */}
           </aside>
         </div>
       </section>
