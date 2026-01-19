@@ -334,14 +334,14 @@ function expandMcqAnswerIfLabelOnly(args: {
 }): string {
   const { cardFront, cardBack, style, mode } = args;
 
-  const original = (cardBack ?? "").trim();
-  if (mode === "default") return original;
+  if (mode === "default") return (cardBack ?? "").trim();
 
-  // Normalize label styling only if it looks label-ish (safe)
-  const base = formatMcqAnswer(original, style).trim();
-  if (!base) return base;
+  // Normalize label styling if it looks like a label (safe)
+  const base = formatMcqAnswer(cardBack, style);
+  const trimmed = (base || "").trim();
+  if (!trimmed) return trimmed;
 
-  // Build normalized options with the currently selected style
+  // Build consistently-labeled options from the question
   const frontFormatted = formatMcqOptions(cardFront, style);
   const lines = frontFormatted.split("\n");
   const optLines = lines
@@ -372,16 +372,15 @@ function expandMcqAnswerIfLabelOnly(args: {
     }
   };
 
-  const stripLeadingLabel = (s: string) => s.replace(/^\s*([A-Za-z]|\d+)[)\.]\s+/, "").trim();
+  const stripLeadingLabel = (s: string) =>
+    s.replace(/^\s*([A-Za-z]|\d+)[)\.]\s+/, "").trim();
 
-  // More tolerant normalize for matching option text
   const normalize = (s: string) =>
     s
       .toLowerCase()
+      .replace(/\s+/g, " ")
       .replace(/[“”]/g, '"')
       .replace(/[‘’]/g, "'")
-      .replace(/\s+/g, " ")
-      .replace(/[^\w\s\-+./%()]/g, "") // mild punctuation tolerance
       .trim();
 
   const labelTokenToIndex = (token: string) => {
@@ -390,68 +389,59 @@ function expandMcqAnswerIfLabelOnly(args: {
     return null;
   };
 
-  // Find index from:
-  // 1) pure label: "B" / "2" / "B)" / "2."
-  // 2) label+text: "B) Compton scatter"
-  // 3) option-only: "Compton scatter"
-  const findIndex = (): number | null => {
-    if (!optLines.length) return null;
-
-    // 1) Pure label token
-    const pureLabel = base.match(/^([A-Za-z]|\d+)\s*([)\.])?$/);
-    if (pureLabel) {
-      const idx = labelTokenToIndex(pureLabel[1]);
-      if (idx == null) return null;
-      return idx >= 0 && idx < optLines.length ? idx : null;
-    }
-
-    // 2) Starts with label+delim (e.g. "B) xxx" or "2. yyy")
-    const withLabel = base.match(/^\s*([A-Za-z]|\d+)\s*[)\.]\s+(.+)$/);
-    if (withLabel) {
-      const idx = labelTokenToIndex(withLabel[1]);
-      if (idx != null && idx >= 0 && idx < optLines.length) return idx;
-
-      // If label is weird, still try matching the text portion
-      const targetText = normalize(withLabel[2]);
-      for (let i = 0; i < optLines.length; i++) {
-        const optText = normalize(stripLeadingLabel(optLines[i]));
-        if (optText && optText === targetText) return i;
-      }
-      return null;
-    }
-
-    // 3) Option-only: match against option text
-    const target = normalize(stripLeadingLabel(base));
-    if (!target) return null;
+  // Helper: find option index by matching option text
+  const findOptionIndexByText = (answerText: string) => {
+    if (!optLines.length) return -1;
+    const target = normalize(stripLeadingLabel(answerText));
+    if (!target) return -1;
 
     for (let i = 0; i < optLines.length; i++) {
       const optText = normalize(stripLeadingLabel(optLines[i]));
       if (optText && optText === target) return i;
     }
-
-    return null;
+    return -1;
   };
 
-  const idx = findIndex();
+  // CASE A) Stored answer is a pure label token: A / A) / A. / 2 / 2) / 2.
+  const mLabelOnly = trimmed.match(/^([A-Za-z]|\d+)\s*([)\.])?$/);
+  if (mLabelOnly) {
+    const token = mLabelOnly[1];
+    const idx = labelTokenToIndex(token);
+    if (idx == null) return trimmed;
 
-  // If we can’t map safely, do nothing (safe fallback)
-  if (idx == null) return base;
+    if (mode === "label_only") return trimmed;
 
-  const optionLine = optLines[idx]; // e.g. "2) 1.02 MeV"
-  const optionText = stripLeadingLabel(optionLine); // e.g. "1.02 MeV"
+    if (!optLines.length || idx < 0 || idx >= optLines.length) return trimmed;
 
-  if (mode === "label_only") {
-    return labelFor(idx);
+    const optLine = optLines[idx]; // e.g. "A) GABA"
+    if (mode === "label_plus_option") return optLine;
+
+    // option_only
+    const optionOnly = stripLeadingLabel(optLine);
+    return optionOnly || trimmed;
   }
 
-  if (mode === "option_only") {
-    return optionText || base;
+  // CASE B) Stored answer is not a pure label token
+  // It might be:
+  // - "A) GABA" (already label+option)
+  // - "GABA" (option-only)
+  // - some other string
+  const idxFromText = findOptionIndexByText(trimmed);
+
+  // If we can reverse-map it to an option:
+  if (idxFromText >= 0) {
+    if (mode === "label_only") return labelFor(idxFromText);
+    if (mode === "label_plus_option") return optLines[idxFromText]; // FULL label + option
+    if (mode === "option_only") return stripLeadingLabel(optLines[idxFromText]) || trimmed;
   }
 
-  // mode === "label_plus_option"
-  // ✅ Key fix: ALWAYS output label+option once mapped, even if stored answer was option-only
-  return optionLine || `${labelFor(idx)} ${optionText}`.trim();
+  // If we can't match it to any option, don't force a bad transform.
+  // For option_only, strip label if present; for others, leave as-is.
+  if (mode === "option_only") return stripLeadingLabel(trimmed) || trimmed;
+
+  return trimmed;
 }
+
 
 function normFlag(flag: string | null | undefined) {
   return (flag ?? "").trim().toLowerCase();
