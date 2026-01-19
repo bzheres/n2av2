@@ -97,19 +97,23 @@ const PLANS: Plan[] = [
 function planCardClass(active: boolean, highlight?: boolean) {
   return [
     "card rounded-2xl border transition-all duration-200 h-full",
-    // ✅ keep cards roomy + prevent narrow/overflow look
     "min-w-0",
-    // ✅ selection styling
     active ? "bg-base-200 ring-1 ring-primary/30" : "bg-base-200/60",
-    // ✅ highlight (best value): strong primary border
     highlight ? "border-primary ring-1 ring-primary/30 shadow-lg shadow-primary/10" : "border-base-300",
-    // ✅ hover
     "hover:-translate-y-1 hover:bg-base-200 hover:border-primary/40",
   ].join(" ");
 }
 
 function formatNumber(n: number) {
   return n.toLocaleString("en-AU");
+}
+
+function colEmphasisClass(selected: PlanKey, col: PlanKey) {
+  const is = selected === col;
+  return [
+    "transition-all duration-200",
+    is ? "scale-[1.03] ring-2 ring-primary/30 rounded-xl bg-primary/5" : "opacity-90",
+  ].join(" ");
 }
 
 export default function Pricing() {
@@ -124,7 +128,6 @@ export default function Pricing() {
   const [portalBusy, setPortalBusy] = React.useState(false);
 
   React.useEffect(() => {
-    // If logged in, default-select their current plan for clarity.
     if (!loading && user) setSelected(currentPlan);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, user?.id]);
@@ -133,7 +136,6 @@ export default function Pricing() {
     setErr(null);
 
     if (!user) {
-      // Checkout requires auth (cookie session). Send them to Account.
       navigate("/account");
       return;
     }
@@ -184,7 +186,6 @@ export default function Pricing() {
             The core workflow is usable on Free. Upgrade only if you want optional AI review for your cards.
           </p>
 
-          {/* ✅ Button row (middle removed) */}
           <div className="flex flex-col sm:flex-row justify-center gap-3 pt-2">
             <Link to="/workflow" className="btn btn-primary">
               Try Workflow
@@ -212,11 +213,10 @@ export default function Pricing() {
 
       {/* PLAN PICKER + SUMMARY */}
       <section className="px-4 md:px-6 lg:px-8 py-10 md:py-12 bg-base-200">
-        {/* ✅ Make the full layout less narrow on large screens */}
         <div className="max-w-7xl 2xl:max-w-screen-2xl mx-auto grid lg:grid-cols-[1fr_420px] gap-6 items-start">
-          {/* LEFT: plan cards */}
+          {/* LEFT: plan cards + (on smaller widths) selected-plan summary + compare */}
           <div className="space-y-4 min-w-0">
-            {/* ✅ Responsive grid that avoids narrow cards / overflow */}
+            {/* Cards */}
             <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 xl:grid-cols-4">
               {PLANS.map((p) => {
                 const active = selected === p.key;
@@ -271,13 +271,83 @@ export default function Pricing() {
               })}
             </div>
 
+            {/* ✅ Selected-plan summary appears ABOVE compare on smaller widths.
+                On lg+ it moves into the right sticky aside. */}
+            <div className="block lg:hidden">
+              <div className="card bg-base-100 border border-base-300 rounded-2xl">
+                <div className="card-body space-y-3 min-w-0">
+                  <div className="flex items-start justify-between gap-3 min-w-0">
+                    <div className="min-w-0">
+                      <div className="text-sm opacity-70">Selected plan</div>
+                      <div className="text-2xl font-extrabold break-words">{selectedPlan.title}</div>
+                      <div className="text-sm opacity-70 break-words">{selectedPlan.subtitle}</div>
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border border-base-300 bg-base-200/40 p-3 min-w-0">
+                    <div className="text-sm opacity-70">Price</div>
+                    <div className="text-3xl font-extrabold break-words">
+                      {selectedPlan.priceLabel}
+                      {selectedPlan.key !== "free" ? (
+                        <span className="text-sm font-semibold opacity-70"> / month</span>
+                      ) : null}
+                    </div>
+                    <div className="text-sm opacity-80 mt-1 break-words">
+                      AI reviews:{" "}
+                      <span className="font-semibold">
+                        {selectedPlan.aiReviewsPerMonth ? formatNumber(selectedPlan.aiReviewsPerMonth) : "0"}
+                      </span>
+                      <span className="opacity-70"> / month</span>
+                    </div>
+                  </div>
+
+                  {selectedPlan.key === "free" ? (
+                    <div className="space-y-2">
+                      <Link to="/workflow" className="btn btn-primary w-full">
+                        Start Free
+                      </Link>
+                      <div className="text-xs opacity-60">
+                        Use guest mode instantly. Create an account later if you want AI review.
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {user && currentPlan === selectedPlan.key ? (
+                        <button className="btn btn-primary w-full" onClick={doPortal} disabled={portalBusy}>
+                          {portalBusy ? "Opening…" : "Manage subscription"}
+                        </button>
+                      ) : (
+                        <button
+                          className="btn btn-primary w-full"
+                          onClick={() => doCheckout(selectedPlan.key as any)}
+                          disabled={checkoutBusy !== null}
+                          title={!user ? "Login required for checkout" : "Continue to Stripe Checkout"}
+                        >
+                          {checkoutBusy === selectedPlan.key ? "Redirecting…" : `Choose ${selectedPlan.title}`}
+                        </button>
+                      )}
+
+                      {!user && (
+                        <div className="text-xs opacity-60">
+                          Checkout requires login. You’ll be sent to <span className="font-semibold">Account</span>.
+                        </div>
+                      )}
+
+                      <Link to="/workflow" className="btn btn-outline w-full">
+                        Try Workflow first
+                      </Link>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
             {/* Compare table */}
             <div className="card bg-base-100 border border-base-300 rounded-2xl">
               <div className="card-body space-y-4">
                 <div className="flex items-end justify-between gap-4 flex-wrap">
                   <div>
                     <h2 className="text-2xl font-bold">Compare plans</h2>
-                    {/* ✅ removed: "Free covers the workflow..." */}
                   </div>
                   <div className="badge badge-outline">
                     Selected: <span className="ml-1 font-semibold">{planLabel(selected)}</span>
@@ -291,53 +361,79 @@ export default function Pricing() {
                         <th>Feature</th>
                         {PLANS.map((p) => (
                           <th key={p.key}>
-                            <span className={p.key === "gold" ? "text-primary font-bold" : ""}>{p.title}</span>
+                            <div className={colEmphasisClass(selected, p.key)}>
+                              <span className={p.key === "gold" ? "text-primary font-bold" : ""}>{p.title}</span>
+                            </div>
                           </th>
                         ))}
                       </tr>
                     </thead>
+
                     <tbody>
                       <tr>
                         <td className="font-semibold">Upload Notion Markdown export</td>
-                        <td>✅</td>
-                        <td>✅</td>
-                        <td>✅</td>
-                        <td>✅</td>
+                        {PLANS.map((p) => (
+                          <td key={p.key}>
+                            <div className={colEmphasisClass(selected, p.key)}>✅</div>
+                          </td>
+                        ))}
                       </tr>
+
                       <tr>
                         <td className="font-semibold">Parse Q&A + MCQ cards</td>
-                        <td>✅</td>
-                        <td>✅</td>
-                        <td>✅</td>
-                        <td>✅</td>
+                        {PLANS.map((p) => (
+                          <td key={p.key}>
+                            <div className={colEmphasisClass(selected, p.key)}>✅</div>
+                          </td>
+                        ))}
                       </tr>
+
                       <tr>
                         <td className="font-semibold">Preview / Edit / Delete cards</td>
-                        <td>✅</td>
-                        <td>✅</td>
-                        <td>✅</td>
-                        <td>✅</td>
+                        {PLANS.map((p) => (
+                          <td key={p.key}>
+                            <div className={colEmphasisClass(selected, p.key)}>✅</div>
+                          </td>
+                        ))}
                       </tr>
+
+                      {/* ✅ Split export into two rows */}
                       <tr>
-                        <td className="font-semibold">Export (Anki-ready)</td>
-                        <td>✅ (TSV)</td>
-                        <td>✅</td>
-                        <td>✅</td>
-                        <td>✅</td>
+                        <td className="font-semibold">Export as TSV</td>
+                        {PLANS.map((p) => (
+                          <td key={p.key}>
+                            <div className={colEmphasisClass(selected, p.key)}>{p.key === "free" ? "✅" : "—"}</div>
+                          </td>
+                        ))}
                       </tr>
+
                       <tr>
-                        <td className="font-semibold">Optional AI Review (content/format/both)</td>
-                        <td>—</td>
-                        <td>✅</td>
-                        <td>✅</td>
-                        <td>✅</td>
+                        <td className="font-semibold">Export as APKG</td>
+                        {PLANS.map((p) => (
+                          <td key={p.key}>
+                            <div className={colEmphasisClass(selected, p.key)}>{p.key === "free" ? "—" : "✅"}</div>
+                          </td>
+                        ))}
                       </tr>
+
+                      <tr>
+                        <td className="font-semibold">Optional AI Review</td>
+                        {PLANS.map((p) => (
+                          <td key={p.key}>
+                            <div className={colEmphasisClass(selected, p.key)}>{p.key === "free" ? "—" : "✅"}</div>
+                          </td>
+                        ))}
+                      </tr>
+
                       <tr>
                         <td className="font-semibold">AI reviews / month</td>
-                        <td>0</td>
-                        <td>{formatNumber(2000)}</td>
-                        <td className="text-primary font-bold">{formatNumber(6000)}</td>
-                        <td>{formatNumber(12000)}</td>
+                        {PLANS.map((p) => (
+                          <td key={p.key}>
+                            <div className={colEmphasisClass(selected, p.key)}>
+                              {p.aiReviewsPerMonth ? formatNumber(p.aiReviewsPerMonth) : "0"}
+                            </div>
+                          </td>
+                        ))}
                       </tr>
                     </tbody>
                   </table>
@@ -373,16 +469,16 @@ export default function Pricing() {
                 <details className="collapse collapse-arrow border border-base-300 bg-base-200/40 rounded-xl">
                   <summary className="collapse-title text-sm font-semibold">Can I cancel anytime?</summary>
                   <div className="collapse-content text-sm opacity-80">
-                    Yes — manage your subscription by going to account &gt; pressing manage subscription &gt;
-                    unsubscribe. If you cancel, your plan reverts to the Free Plan at the end of the billing period.
+                    Yes — manage your subscription by pressing the &quot;Manage subscription&quot; button. If you cancel,
+                    your plan reverts to the Free Plan at the end of the billing period.
                   </div>
                 </details>
               </div>
             </div>
           </div>
 
-          {/* RIGHT: sticky summary / CTA */}
-          <aside className="lg:sticky lg:top-24 space-y-4 min-w-0">
+          {/* RIGHT: sticky summary / CTA (desktop) */}
+          <aside className="hidden lg:block lg:sticky lg:top-24 space-y-4 min-w-0">
             <div className="card bg-base-100 border border-base-300 rounded-2xl">
               <div className="card-body space-y-3 min-w-0">
                 <div className="flex items-start justify-between gap-3 min-w-0">
@@ -397,7 +493,9 @@ export default function Pricing() {
                   <div className="text-sm opacity-70">Price</div>
                   <div className="text-3xl font-extrabold break-words">
                     {selectedPlan.priceLabel}
-                    {selectedPlan.key !== "free" ? <span className="text-sm font-semibold opacity-70"> / month</span> : null}
+                    {selectedPlan.key !== "free" ? (
+                      <span className="text-sm font-semibold opacity-70"> / month</span>
+                    ) : null}
                   </div>
                   <div className="text-sm opacity-80 mt-1 break-words">
                     AI reviews:{" "}
@@ -421,7 +519,7 @@ export default function Pricing() {
                   <div className="space-y-2">
                     {user && currentPlan === selectedPlan.key ? (
                       <button className="btn btn-primary w-full" onClick={doPortal} disabled={portalBusy}>
-                        {portalBusy ? "Opening…" : "Manage / cancel subscription"}
+                        {portalBusy ? "Opening…" : "Manage subscription"}
                       </button>
                     ) : (
                       <button
@@ -447,8 +545,6 @@ export default function Pricing() {
                 )}
               </div>
             </div>
-
-            {/* ✅ removed the "Tip" box */}
           </aside>
         </div>
       </section>
