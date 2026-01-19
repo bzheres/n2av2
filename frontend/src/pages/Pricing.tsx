@@ -61,6 +61,7 @@ const PLANS: Plan[] = [
     features: [
       "Everything in Free",
       "Up to 2,000 AI reviews / month",
+      "Export apkg for instant Anki import",
       "AI review modes: content / format / both",
       "Apply AI suggestions",
     ],
@@ -71,10 +72,11 @@ const PLANS: Plan[] = [
     subtitle: "Best value for regular studying and repeated review cycles.",
     priceLabel: "$7",
     aiReviewsPerMonth: 6000,
-    highlight: true, // ✅ Best value highlight (border only; no sticker)
+    highlight: true,
     features: [
       "Everything in Silver",
       "Up to 6,000 AI reviews / month",
+      "Export apkg for instant Anki import",
       "AI review modes: content / format / both",
       "Apply AI suggestions",
     ],
@@ -88,6 +90,7 @@ const PLANS: Plan[] = [
     features: [
       "Everything in Gold",
       "Up to 12,000 AI reviews / month",
+      "Export apkg for instant Anki import",
       "AI review modes: content / format / both",
       "Apply AI suggestions",
     ],
@@ -108,10 +111,10 @@ function formatNumber(n: number) {
   return n.toLocaleString("en-AU");
 }
 
-// ✅ Compare-table emphasis (no border / ring). Just subtle bg + scale.
+// ✅ No purple bg — only a tiny scale/opacity nudge
 function colEmphasisClass(selected: PlanKey, col: PlanKey) {
   const is = selected === col;
-  return ["transition-all duration-200", is ? "scale-[1.02] bg-primary/5" : "opacity-90"].join(" ");
+  return ["transition-all duration-200", is ? "scale-[1.02] opacity-100" : "opacity-90"].join(" ");
 }
 
 export default function Pricing() {
@@ -255,7 +258,7 @@ export default function Pricing() {
                       </div>
 
                       <ul className="text-sm opacity-80 space-y-1 list-disc list-inside min-w-0">
-                        {p.features.slice(0, 4).map((f) => (
+                        {p.features.slice(0, 5).map((f) => (
                           <li key={f} className="break-words">
                             {f}
                           </li>
