@@ -97,6 +97,7 @@ export default function Home() {
           "applicationCategory": "EducationalApplication",
           "operatingSystem": "Web",
           "url": "https://n2a.com.au",
+          "logo": "https://n2a.com.au/logo.svg",
           "description": "N2A converts Notion notes into Anki flashcards for spaced repetition study.",
           "offers": {
             "@type": "Offer",
