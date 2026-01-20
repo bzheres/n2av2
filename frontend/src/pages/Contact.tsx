@@ -1,3 +1,4 @@
+// src/pages/Contact.tsx
 import { Link } from "react-router-dom";
 import Seo from "../components/Seo";
 
@@ -45,9 +46,24 @@ export default function Contact() {
                   For support, feedback, or general questions, the fastest way to reach out is email.
                 </p>
 
-                <a href="mailto:admin@n2a.com.au" className="btn btn-primary w-fit">
-                  admin@n2a.com.au
-                </a>
+                <div className="flex flex-col gap-2">
+                  <a
+                    href="mailto:admin@n2a.com.au"
+                    className="btn btn-primary w-fit"
+                  >
+                    admin@n2a.com.au
+                  </a>
+
+                  {/* ✅ Instagram button */}
+                  <a
+                    href="https://www.instagram.com/n2a.app/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn btn-outline w-fit"
+                  >
+                    Follow on Instagram
+                  </a>
+                </div>
               </div>
             </div>
 
