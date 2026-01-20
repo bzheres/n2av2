@@ -124,7 +124,7 @@ export default function Navbar() {
 
         {/* Brand */}
         <Link to="/" className="btn btn-ghost px-2">
-          <img src="/logo.svg" alt="N2A" className="h-8 w-auto md:h-9 lg:h-10 opacity-90 hover:opacity-100" />
+          <img src="/black_logo.svg" alt="N2A" className="h-8 w-auto md:h-9 lg:h-10 opacity-90 hover:opacity-100" />
         </Link>
       </div>
 
