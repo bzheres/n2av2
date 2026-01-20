@@ -41,6 +41,23 @@ const THEMES = [
   "winter",
 ];
 
+// ✅ Decide which themes count as "dark" (logo is visible with no pill)
+function isDarkTheme(theme: string) {
+  const t = (theme || "").toLowerCase();
+  return [
+    "dark",
+    "black",
+    "night",
+    "luxury",
+    "forest",
+    "business",
+    "dracula",
+    "synthwave",
+    "dim",
+    "coffee",
+  ].includes(t);
+}
+
 export default function Navbar() {
   const navigate = useNavigate();
 
@@ -85,6 +102,12 @@ export default function Navbar() {
     </>
   );
 
+  // ✅ Always use the transparent logo
+  const logoSrc = "/logo.svg";
+
+  // ✅ Only add a pill background on light themes so the logo stays visible
+  const needsPill = !isDarkTheme(theme);
+
   return (
     <div className="navbar bg-base-100 border-b border-base-200 sticky top-0 z-50">
       {/* LEFT: Mobile dropdown + Brand */}
@@ -124,13 +147,19 @@ export default function Navbar() {
 
         {/* Brand */}
         <Link to="/" className="btn btn-ghost px-2 h-auto min-h-0 py-2">
-          <img
-            src="/black_logo.svg"
-            alt="N2A"
-            className="h-12 w-auto md:h-14 lg:h-16 opacity-90 hover:opacity-100"
-          />
+          <span
+            className={[
+              "inline-flex items-center justify-center rounded-xl transition-all",
+              needsPill ? "bg-base-200/70 border border-base-300 px-2 py-1" : "",
+            ].join(" ")}
+          >
+            <img
+              src={logoSrc}
+              alt="N2A"
+              className="h-12 w-auto md:h-14 lg:h-16 opacity-90 hover:opacity-100"
+            />
+          </span>
         </Link>
-
       </div>
 
       {/* CENTER: Desktop nav (shows lg+) */}
