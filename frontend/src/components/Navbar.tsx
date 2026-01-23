@@ -81,7 +81,6 @@ export default function Navbar() {
     } catch {
       // ignore
     }
-    // ✅ update global auth state immediately
     setUser(null);
     navigate("/account");
   }
@@ -107,11 +106,12 @@ export default function Navbar() {
   );
 
   const logoSrc = BLACK_LOGO_THEMES.has(theme) ? "/black_logo.svg" : "/logo.svg";
+  const initials = user?.username ? user.username.slice(0, 2).toUpperCase() : null;
 
   return (
-    <div className="navbar bg-base-100 border-b border-base-200 sticky top-0 z-50">
+    <div className="navbar bg-base-100 border-b border-base-200 sticky top-0 z-50 flex-wrap gap-y-2">
       {/* LEFT: Mobile dropdown + Brand */}
-      <div className="navbar-start">
+      <div className="navbar-start flex-1 min-w-0">
         {/* Mobile dropdown (shows <lg) */}
         <div className="dropdown lg:hidden">
           <label tabIndex={0} className="btn btn-ghost btn-circle">
@@ -121,6 +121,7 @@ export default function Navbar() {
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
+              aria-hidden="true"
             >
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
             </svg>
@@ -145,12 +146,12 @@ export default function Navbar() {
           </ul>
         </div>
 
-        {/* Brand */}
-        <Link to="/" className="btn btn-ghost px-2 h-auto min-h-0 py-2">
+        {/* Brand (shrink on tiny screens so it never overlaps the theme select) */}
+        <Link to="/" className="btn btn-ghost px-1 sm:px-2 h-auto min-h-0 py-2">
           <img
             src={logoSrc}
             alt="N2A"
-            className="h-12 w-auto md:h-14 lg:h-16 opacity-90 hover:opacity-100"
+            className="h-10 sm:h-12 md:h-14 lg:h-16 w-auto max-w-[84px] sm:max-w-none opacity-90 hover:opacity-100"
           />
         </Link>
       </div>
@@ -160,9 +161,14 @@ export default function Navbar() {
         <ul className="menu menu-horizontal px-1 gap-1">{navLinks}</ul>
       </div>
 
-      {/* RIGHT: Theme + Login/User + Logout (desktop) */}
-      <div className="navbar-end gap-2">
-        <select className="select select-bordered select-sm" value={theme} onChange={(e) => setTheme(e.target.value)}>
+      {/* RIGHT: Theme + Login/User + Logout */}
+      <div className="navbar-end flex-none gap-1 sm:gap-2">
+        {/* Make theme control smaller on very narrow screens */}
+        <select
+          className="select select-bordered select-xs sm:select-sm"
+          value={theme}
+          onChange={(e) => setTheme(e.target.value)}
+        >
           {THEMES.map((t) => (
             <option key={t} value={t}>
               {t.charAt(0).toUpperCase() + t.slice(1)}
@@ -170,12 +176,17 @@ export default function Navbar() {
           ))}
         </select>
 
-        <Link to="/account" className="btn btn-primary btn-sm">
+        {/* Account button: compact on tiny screens */}
+        <Link to="/account" className="btn btn-primary btn-xs sm:hidden">
+          {user ? initials || "Me" : "Login"}
+        </Link>
+        <Link to="/account" className="btn btn-primary btn-sm hidden sm:inline-flex">
           {user ? user.username : "Login"}
         </Link>
 
+        {/* Hide this on tiny screens (logout stays accessible in the hamburger menu) */}
         {user && (
-          <button className="btn btn-ghost btn-sm" onClick={doLogout}>
+          <button className="btn btn-ghost btn-sm hidden sm:inline-flex" onClick={doLogout}>
             Logout
           </button>
         )}
