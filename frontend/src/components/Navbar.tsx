@@ -105,7 +105,7 @@ export default function Navbar() {
     </>
   );
 
-  const logoSrc = BLACK_LOGO_THEMES.has(theme) ? "/black_logo.svg" : "/logo.svg";
+  const logoSrc = BLACK_LOGO_THEMES.has(theme) ? "/icon-black.svg" : "/icon-white.svg";
   const initials = user?.username ? user.username.slice(0, 2).toUpperCase() : null;
 
   return (
