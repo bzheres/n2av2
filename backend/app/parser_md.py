@@ -1,86 +1,90 @@
 from __future__ import annotations
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import List, Optional, Tuple
+import re
 
 
 @dataclass
 class ParsedCard:
-    card_type: str
+    card_type: str  # "qa" | "mcq"
     front: str
     back: str
     raw: str | None = None
 
 
-BULLETS = ("- ", "* ", "• ")
+# ---- helpers ---------------------------------------------------------------
+
+_BULLET_PREFIX_RE = re.compile(r"^\s*(?:[-*•]\s+)?(.*)$")
+_TAG_RE_QUESTION = re.compile(r"^\s*(?:[-*•]\s+)?\s*(question|quesition|quesiton)\s*:\s*(.*)$", re.I)
+_TAG_RE_MCQ = re.compile(r"^\s*(?:[-*•]\s+)?\s*(mcq|mcu)\s*:\s*(.*)$", re.I)
+_TAG_RE_ANSWER = re.compile(r"^\s*(?:[-*•]\s+)?\s*answer\s*:\s*(.*)$", re.I)
 
 
-def _strip_toggle_prefix(line: str) -> str:
+def _strip_list_prefix(line: str) -> str:
+    """Remove one leading bullet marker ( - / * / • ) and whitespace."""
+    m = _BULLET_PREFIX_RE.match(line)
+    return (m.group(1) if m else line).rstrip("\n")
+
+
+def _norm_tag(line: str) -> Tuple[Optional[str], Optional[str]]:
     """
-    Removes a single leading toggle/list prefix like:
-      "- Question: ..."
-      "  - Answer: ..."
-      "* MCQ: ..."
-    Keeps the rest intact.
+    Returns (tag, payload) where tag in {"question","mcq","answer"} or (None, None).
+    Payload is the text after ":" (may be empty).
     """
-    s = line.lstrip(" \t")
-    for b in BULLETS:
-        if s.startswith(b):
-            return s[len(b) :]
-    return s
+    s = line.rstrip("\n")
+
+    m = _TAG_RE_QUESTION.match(s)
+    if m:
+        return "question", (m.group(2) or "").strip()
+
+    m = _TAG_RE_MCQ.match(s)
+    if m:
+        return "mcq", (m.group(2) or "").strip()
+
+    m = _TAG_RE_ANSWER.match(s)
+    if m:
+        # could be inline answer: "Answer: B) something"
+        return "answer", (m.group(1) or "").strip()
+
+    return None, None
 
 
-def _norm_tag(line: str) -> Optional[str]:
+def _is_card_start(line: str) -> bool:
+    tag, _ = _norm_tag(line)
+    return tag in ("question", "mcq")
+
+
+def _is_indented_or_bulleted(line: str) -> bool:
     """
-    Recognizes Question/MCQ tags even when exported as toggles:
-      "- Question: ..."
-      "- MCQ: ..."
-    Also tolerates common typos.
-    """
-    s = _strip_toggle_prefix(line).strip().lower()
-
-    if s.startswith(("question:", "quesition:", "quesiton:")):
-        return "question"
-    if s.startswith(("mcq:", "mcu:")):
-        return "mcq"
-    return None
-
-
-def _is_answer_label(line: str) -> bool:
-    """
-    Recognize Answer: lines even when exported as toggles:
-      "Answer:"
-      "- Answer:"
-      "  - Answer:"
-    """
-    s = _strip_toggle_prefix(line).strip().lower()
-    return s.startswith("answer:")
-
-
-def _is_indented_or_list(line: str) -> bool:
-    """
-    Treat as content line if it's indented (ANY leading whitespace, including 1-2 spaces),
-    or if it begins with a list/toggle bullet.
-    This is what fixes Notion 'tab' exports that don't become literal \\t.
+    For Notion exports, answer/options lines may appear as:
+      - indented with 1+ spaces (not necessarily 4)
+      - tab
+      - nested list items: "  - A) ...", "- A) ..."
     """
     if not line:
         return False
-    if line.startswith((" ", "\t")):
+    if line.startswith("\t"):
         return True
-    s = line.lstrip(" \t")
-    return s.startswith(BULLETS)
+    if line.startswith(" "):  # any leading spaces
+        return True
+    s = line.lstrip()
+    return s.startswith(("-", "*", "•"))
 
 
-def _clean_content(line: str) -> str:
+def _clean_content_line(line: str) -> str:
     """
-    Remove leading indentation and a single bullet prefix, but preserve the actual text.
+    Remove indentation + one list marker, but keep the meaningful text.
     """
-    s = line.lstrip(" \t")
-    for b in BULLETS:
-        if s.startswith(b):
-            s = s[len(b) :]
-            break
+    s = line.rstrip("\n")
+    # strip leading whitespace first
+    s = s.lstrip(" \t")
+    # strip ONE bullet if present
+    if s.startswith(("-", "*", "•")):
+        s = s[1:].lstrip(" \t")
     return s.rstrip()
 
+
+# ---- main parser -----------------------------------------------------------
 
 def parse_markdown(md_text: str) -> List[ParsedCard]:
     lines = md_text.splitlines()
@@ -89,108 +93,126 @@ def parse_markdown(md_text: str) -> List[ParsedCard]:
 
     while i < len(lines):
         line = lines[i]
-        tag = _norm_tag(line)
-        if not tag:
+        tag, payload = _norm_tag(line)
+
+        if tag is None:
             i += 1
             continue
 
-        # -------------------------
-        # Q&A
-        # -------------------------
+        # ---------------- Q&A ----------------
         if tag == "question":
-            s = _strip_toggle_prefix(line)
-            q = s.split(":", 1)[1].strip()
+            q = payload or ""
+            raw_lines = [line]
             i += 1
 
             ans_lines: List[str] = []
+            started = False
 
             while i < len(lines):
                 nxt = lines[i]
-
-                # next card starts
-                if _norm_tag(nxt):
+                if _is_card_start(nxt):
                     break
 
-                # blank lines: keep only if we've started capturing
+                raw_lines.append(nxt)
+
+                # allow blank lines inside an answer once started
                 if nxt.strip() == "":
-                    if ans_lines:
+                    if started:
                         ans_lines.append("")
                     i += 1
                     continue
 
-                # answer content lines
-                if _is_indented_or_list(nxt):
-                    ans_lines.append(_clean_content(nxt))
+                # capture any indented / bulleted line as answer content
+                if _is_indented_or_bulleted(nxt):
+                    ans_lines.append(_clean_content_line(nxt))
+                    started = True
                     i += 1
                     continue
 
-                # If we already started capturing and we hit non-indented text, end the answer block.
-                if ans_lines:
+                # if we already started collecting an answer, stop at first non-answer line
+                if started:
                     break
 
-                # Otherwise ignore stray non-indented lines between Question and Answer
+                # otherwise ignore stray text until we hit answer-like structure
                 i += 1
 
             back = "\n".join(ans_lines).strip()
-            cards.append(ParsedCard(card_type="qa", front=q, back=back))
+            cards.append(
+                ParsedCard(card_type="qa", front=q.strip(), back=back, raw="\n".join(raw_lines))
+            )
             continue
 
-        # -------------------------
-        # MCQ
-        # -------------------------
+        # ---------------- MCQ ----------------
         if tag == "mcq":
-            s = _strip_toggle_prefix(line)
-            stem = s.split(":", 1)[1].strip()
+            stem = payload or ""
+            raw_lines = [line]
             i += 1
 
             options: List[str] = []
-            answer = ""
+            answer: str = ""
             in_answer = False
 
             while i < len(lines):
                 nxt = lines[i]
-
-                # next card starts
-                if _norm_tag(nxt):
+                if _is_card_start(nxt):
                     break
 
-                # skip blank lines
+                raw_lines.append(nxt)
+
                 if nxt.strip() == "":
                     i += 1
                     continue
 
-                # answer label
-                if _is_answer_label(nxt):
+                t, p = _norm_tag(nxt)
+
+                # detect "Answer:" even if bulleted/toggled
+                if t == "answer":
                     in_answer = True
+                    # if "Answer:" has inline content, take it immediately
+                    if p:
+                        answer = p.strip()
+                        i += 1
+                        # keep scanning until we hit next card start, but don’t overwrite answer
+                        continue
                     i += 1
                     continue
 
                 if in_answer:
-                    # Accept answer line if it is indented OR bullet/toggle-style
-                    if _is_indented_or_list(nxt):
-                        answer = _clean_content(nxt).strip()
+                    # accept answer line if it's indented OR bulleted (nested list)
+                    if _is_indented_or_bulleted(nxt):
+                        cleaned = _clean_content_line(nxt)
+                        if cleaned:
+                            answer = cleaned
                         i += 1
-                        # optionally: consume additional indented lines as part of answer (rare)
-                        while i < len(lines) and lines[i].strip() != "" and _is_indented_or_list(lines[i]):
-                            # If user puts multiple answer lines, join them
-                            extra = _clean_content(lines[i]).strip()
-                            if extra:
-                                answer = (answer + "\n" + extra).strip()
-                            i += 1
-                        continue
+                        # stop consuming answer after first meaningful line
+                        break
+                    # sometimes Notion exports answer without indentation (rare) — accept first plain line too
+                    cleaned = _strip_list_prefix(nxt).strip()
+                    if cleaned and not _is_card_start(nxt):
+                        answer = cleaned
+                    i += 1
                     break
 
-                # options lines
-                if _is_indented_or_list(nxt):
-                    options.append(_clean_content(nxt))
+                # options: accept indented/bulleted lines as options
+                if _is_indented_or_bulleted(nxt):
+                    opt = _clean_content_line(nxt)
+                    if opt:
+                        options.append(opt)
                     i += 1
                     continue
 
-                # stop if unindented unexpected content
+                # if we hit a plain line, stop MCQ block (prevents swallowing notes)
                 break
 
-            front = stem + ("\n" + "\n".join(options) if options else "")
-            cards.append(ParsedCard(card_type="mcq", front=front, back=answer.strip()))
+            front = stem.strip()
+            if options:
+                front = front + "\n" + "\n".join(options)
+
+            cards.append(
+                ParsedCard(card_type="mcq", front=front, back=answer.strip(), raw="\n".join(raw_lines))
+            )
             continue
+
+        i += 1
 
     return cards
