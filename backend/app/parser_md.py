@@ -1,209 +1,193 @@
 from __future__ import annotations
+
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import List, Optional, Tuple
 import re
+
 
 @dataclass
 class ParsedCard:
-    card_type: str
+    card_type: str  # "qa" | "mcq"
     front: str
     back: str
     raw: str | None = None
 
-# ---------- helpers ----------
 
-_BULLET_RE = re.compile(r"^\s*([-*•])\s+")
-_NUMBERED_RE = re.compile(r"^\s*\d+[.)]\s+")
-_TAG_RE = re.compile(r"^\s*(?:[-*•]\s+)?(question|mcq|answer)\s*:\s*(.*)$", re.IGNORECASE)
+# Match tags anywhere a Notion export might put them:
+#   Question: ...
+#   Q: ...
+#   - Question: ...
+#   * MCQ: ...
+_TAG_RE = re.compile(
+    r"""^\s*(?:[-*•]\s*)?(?P<tag>question|q|quesition|quesiton|mcq|mcu)\s*:\s*(?P<body>.*)$""",
+    re.IGNORECASE,
+)
 
-def _strip_list_prefix(line: str) -> str:
-    """Remove a single leading markdown bullet prefix like '- ' / '* ' / '• ' (after whitespace)."""
-    return _BULLET_RE.sub("", line, count=1)
+# Answer tag (toggle-style too):
+#   Answer:
+#   - Answer:
+#   Answer: B) ...
+_ANSWER_RE = re.compile(r"""^\s*(?:[-*•]\s*)?answer\s*:\s*(?P<body>.*)$""", re.IGNORECASE)
 
-def _is_numbered(line: str) -> bool:
-    return bool(_NUMBERED_RE.match(line))
+# Option-ish lines (very permissive). Examples:
+#   A) foo
+#   B. foo
+#   1) foo
+#   1. foo
+#   - A) foo
+#   * 2) foo
+_OPT_RE = re.compile(r"""^\s*(?:[-*•]\s*)?(?:\(?[A-Da-d]\)?[.)]|[0-9]{1,2}[.)])\s+.+$""")
 
-def _is_bulleted(line: str) -> bool:
-    return bool(_BULLET_RE.match(line))
 
-def _is_indented(line: str) -> bool:
-    # Any leading whitespace counts (1+ spaces OR tabs)
-    return len(line) > 0 and line[0].isspace()
-
-def _norm_tag(line: str) -> Optional[str]:
-    """
-    Detect 'Question:' / 'MCQ:' / 'Answer:' with optional leading bullet.
-    Also tolerates common misspellings.
-    """
+def _is_tag(line: str) -> Optional[Tuple[str, str]]:
     m = _TAG_RE.match(line)
     if not m:
-        # tolerate your previous misspellings for Question/MCQ
-        s = _strip_list_prefix(line).strip().lower()
-        if s.startswith(("question:", "quesition:", "quesiton:")):
-            return "question"
-        if s.startswith(("mcq:", "mcu:")):
-            return "mcq"
-        if s.startswith("answer:"):
-            return "answer"
         return None
+    tag = m.group("tag").lower()
+    body = (m.group("body") or "").strip()
 
-    tag = m.group(1).strip().lower()
-    if tag in ("question", "mcq", "answer"):
-        return tag
+    if tag in ("question", "q", "quesition", "quesiton"):
+        return ("question", body)
+    if tag in ("mcq", "mcu"):
+        return ("mcq", body)
     return None
 
-def _tag_payload(line: str) -> str:
-    """Return text after the first ':' (after stripping optional list prefix)."""
-    core = _strip_list_prefix(line)
-    return core.split(":", 1)[1].strip() if ":" in core else core.strip()
 
-def _clean_content_line(line: str) -> str:
-    """
-    Clean an answer/option line:
-    - remove one bullet prefix if present
-    - strip leading whitespace
-    - keep internal numbering/lettering (e.g., 'A) ...', '1) ...')
-    """
-    core = _strip_list_prefix(line)
-    return core.strip()
+def _strip_list_prefix(s: str) -> str:
+    # Remove leading indentation + common list markers
+    return s.lstrip(" \t").lstrip("-*•").lstrip(" \t").rstrip()
 
-# ---------- parser ----------
 
 def parse_markdown(md_text: str) -> List[ParsedCard]:
     lines = md_text.splitlines()
     cards: List[ParsedCard] = []
+
     i = 0
-
     while i < len(lines):
-        line = lines[i]
-        tag = _norm_tag(line)
-
-        if tag != "question" and tag != "mcq":
+        tagged = _is_tag(lines[i])
+        if not tagged:
             i += 1
             continue
 
-        # ---------------- QA ----------------
+        tag, header = tagged
+        start_i = i
+        i += 1
+
+        # Collect block lines until next tag
+        block: List[str] = []
+        while i < len(lines):
+            if _is_tag(lines[i]):
+                break
+            block.append(lines[i])
+            i += 1
+
+        raw_block = "\n".join([lines[start_i]] + block).strip()
+
         if tag == "question":
-            q = _tag_payload(line)
-            is_toggle = bool(_BULLET_RE.match(line))  # "- Question:" style
+            q = header.strip()
+            if not q:
+                # If empty after "Question:", try to use the next non-empty line as the question
+                for ln in block:
+                    if ln.strip():
+                        q = _strip_list_prefix(ln)
+                        break
 
-            i += 1
+            # Q&A answer strategy (permissive):
+            # - If an Answer: label exists, use everything after it (including unindented)
+            # - Else use all meaningful lines in the block (excluding headings/hr when possible)
             ans_lines: List[str] = []
-            started = False
+            in_answer = False
+            saw_answer_label = False
 
-            while i < len(lines):
-                nxt = lines[i]
-                nxt_tag = _norm_tag(nxt)
-                if nxt_tag in ("question", "mcq"):
-                    break
-
-                if nxt.strip() == "":
-                    if started:
-                        ans_lines.append("")
-                    i += 1
+            for ln in block:
+                am = _ANSWER_RE.match(ln)
+                if am:
+                    saw_answer_label = True
+                    in_answer = True
+                    inline = (am.group("body") or "").strip()
+                    if inline:
+                        ans_lines.append(inline)
                     continue
 
-                # Decide whether this line counts as answer content
-                if _is_indented(nxt) or _is_bulleted(nxt) or _is_numbered(nxt):
-                    started = True
-                    ans_lines.append(_clean_content_line(nxt))
-                    i += 1
+                if saw_answer_label and not in_answer:
                     continue
 
-                # Toggle-style: allow unindented plain text answers directly under "- Question:"
-                if is_toggle and not started:
-                    started = True
-                    ans_lines.append(_clean_content_line(nxt))
-                    i += 1
-                    continue
+                if saw_answer_label and in_answer:
+                    # take almost everything (except pure separators)
+                    if ln.strip() in ("---", "***"):
+                        continue
+                    ans_lines.append(_strip_list_prefix(ln))
+                else:
+                    # no Answer: label: still take content (Notion often exports flat)
+                    if not ln.strip():
+                        # keep blank lines only if we already started capturing
+                        if ans_lines:
+                            ans_lines.append("")
+                        continue
+                    if ln.strip().startswith("#") and not ans_lines:
+                        # ignore headings before answer starts
+                        continue
+                    if ln.strip() in ("---", "***") and not ans_lines:
+                        continue
+                    ans_lines.append(_strip_list_prefix(ln))
 
-                # otherwise, stop QA answer capture once we hit normal prose
-                if started:
-                    break
-
-                i += 1
-
-            back = "\n".join(ans_lines).strip()
-            cards.append(ParsedCard(card_type="qa", front=q, back=back))
+            back = "\n".join([x.rstrip() for x in ans_lines]).strip()
+            cards.append(ParsedCard(card_type="qa", front=q.strip(), back=back, raw=raw_block))
             continue
 
-        # ---------------- MCQ ----------------
         if tag == "mcq":
-            stem = _tag_payload(line)
-            is_toggle = bool(_BULLET_RE.match(line))  # "- MCQ:" style
+            stem = header.strip()
+            if not stem:
+                # If empty after "MCQ:", fall back to first non-empty line in block
+                for ln in block:
+                    if ln.strip() and not _ANSWER_RE.match(ln):
+                        stem = _strip_list_prefix(ln)
+                        break
 
-            i += 1
-            options: List[str] = []
-            answer = ""
+            options_lines: List[str] = []
+            answer_lines: List[str] = []
             in_answer = False
 
-            while i < len(lines):
-                nxt = lines[i]
-                nxt_tag = _norm_tag(nxt)
-
-                # New card begins
-                if nxt_tag in ("question", "mcq"):
-                    break
-
-                # Enter answer mode (supports "Answer:" and "- Answer:")
-                if nxt_tag == "answer":
+            for ln in block:
+                am = _ANSWER_RE.match(ln)
+                if am:
                     in_answer = True
-                    i += 1
+                    inline = (am.group("body") or "").strip()
+                    if inline:
+                        answer_lines.append(_strip_list_prefix(inline))
                     continue
 
-                if nxt.strip() == "":
-                    i += 1
+                if not ln.strip():
                     continue
 
                 if in_answer:
-                    # Take first non-empty line after Answer:, regardless of indent
-                    answer = _clean_content_line(nxt)
-                    i += 1
-                    # optionally allow multi-line answers if they are indented/bulleted
-                    while i < len(lines):
-                        more = lines[i]
-                        if _norm_tag(more) in ("question", "mcq", "answer"):
-                            break
-                        if more.strip() == "":
-                            break
-                        if _is_indented(more) or _is_bulleted(more) or _is_numbered(more):
-                            answer += "\n" + _clean_content_line(more)
-                            i += 1
+                    # capture answer even if it is NOT indented (Notion can do this)
+                    if ln.strip() in ("---", "***"):
+                        continue
+                    answer_lines.append(_strip_list_prefix(ln))
+                else:
+                    # capture options very permissively:
+                    # - lines that look like options (A) / 1) etc
+                    # - OR bulleted lines (common Notion export)
+                    stripped = _strip_list_prefix(ln)
+                    if _OPT_RE.match(ln) or ln.lstrip().startswith(("-", "*", "•")):
+                        options_lines.append(stripped)
+                    else:
+                        # allow flat options too if they look like them after stripping
+                        if _OPT_RE.match(stripped):
+                            options_lines.append(stripped)
+                        else:
+                            # ignore other commentary lines in MCQ block
                             continue
-                        break
-                    break
 
-                # Collect options:
-                # - indented lines
-                # - bulleted lines
-                # - numbered lines like "1) ..."
-                # - lettered lines like "A) ..." even if not indented (common)
-                core = _strip_list_prefix(nxt)
-                core_stripped = core.strip()
+            # If no explicit Answer: section, try a last-ditch heuristic: last option-like line might be the answer (rare)
+            answer = "\n".join([x for x in answer_lines if x.strip()]).strip()
 
-                looks_like_option = (
-                    _is_indented(nxt)
-                    or _is_bulleted(nxt)
-                    or _is_numbered(nxt)
-                    or re.match(r"^[A-Da-d][\).]\s+", core_stripped) is not None
-                )
+            front = stem
+            if options_lines:
+                front = stem + "\n" + "\n".join(options_lines)
 
-                if looks_like_option:
-                    options.append(_clean_content_line(nxt))
-                    i += 1
-                    continue
-
-                # Toggle-style MCQ: allow unindented options directly under "- MCQ:" until Answer:
-                if is_toggle and not in_answer:
-                    options.append(_clean_content_line(nxt))
-                    i += 1
-                    continue
-
-                # Stop options at first unrelated line
-                break
-
-            front = stem + ("\n" + "\n".join(options) if options else "")
-            cards.append(ParsedCard(card_type="mcq", front=front, back=answer.strip()))
+            cards.append(ParsedCard(card_type="mcq", front=front.strip(), back=answer.strip(), raw=raw_block))
             continue
 
     return cards
