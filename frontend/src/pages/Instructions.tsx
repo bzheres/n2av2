@@ -39,7 +39,7 @@ const STEPS: Step[] = [
     mediaType: "video",
     mediaHint: "Placeholder: 20–40s tour clip: Home → Instructions → Workflow → Account",
     // ✅ Use /public-relative URL (NOT the Windows filesystem path)
-    mediaSrc: "/videos/n2a_step1_video.mp4",
+    mediaSrc: "/videos/n2a_step_video.mp4",
     // mediaPoster: "/images/step1_poster.jpg",
     cta: { label: "Open Workflow", to: "/workflow" },
   },
@@ -56,7 +56,7 @@ const STEPS: Step[] = [
     mediaType: "video",
     mediaHint: "Placeholder: 20–40s tour clip: Home → Instructions → Workflow → Account",
     // ✅ Use /public-relative URL (NOT the Windows filesystem path)
-    mediaSrc: "/videos/n2a_step2_video.mp4",
+    mediaSrc: "/videos/n2a_step_video.mp4",
     // mediaPoster: "/images/step1_poster.jpg",
     cta: { label: "Account", to: "/account" },
   },
@@ -76,7 +76,7 @@ const STEPS: Step[] = [
     mediaType: "video",
     mediaHint: "Placeholder: 20–40s tour clip: Home → Instructions → Workflow → Account",
     // ✅ Use /public-relative URL (NOT the Windows filesystem path)
-    mediaSrc: "/videos/n2a_step3_video.mp4",
+    mediaSrc: "/videos/n2a_step_video.mp4",
     // mediaPoster: "/images/step1_poster.jpg",
     cta: {
       label: "N2A Notion template",
@@ -94,7 +94,7 @@ const STEPS: Step[] = [
     mediaType: "video",
     mediaHint: "Placeholder: 20–40s tour clip: Home → Instructions → Workflow → Account",
     // ✅ Use /public-relative URL (NOT the Windows filesystem path)
-    mediaSrc: "/videos/n2a_step4_video.mp4",
+    mediaSrc: "/videos/n2a_step_video.mp4",
     // mediaPoster: "/images/step1_poster.jpg",
     cta: { label: "Open Workflow", to: "/workflow" },
   },
@@ -109,7 +109,7 @@ const STEPS: Step[] = [
     mediaType: "video",
     mediaHint: "Placeholder: 20–40s tour clip: Home → Instructions → Workflow → Account",
     // ✅ Use /public-relative URL (NOT the Windows filesystem path)
-    mediaSrc: "/videos/n2a_step5_video.mp4",
+    mediaSrc: "/videos/n2a_step_video.mp4",
     // mediaPoster: "/images/step1_poster.jpg",
     cta: { label: "Open Workflow", to: "/workflow" },
   },
@@ -124,7 +124,7 @@ const STEPS: Step[] = [
     mediaType: "video",
     mediaHint: "Placeholder: 20–40s tour clip: Home → Instructions → Workflow → Account",
     // ✅ Use /public-relative URL (NOT the Windows filesystem path)
-    mediaSrc: "/videos/n2a_step6_video.mp4",
+    mediaSrc: "/videos/n2a_step_video.mp4",
     // mediaPoster: "/images/step1_poster.jpg",
     cta: { label: "Open Workflow", to: "/workflow" },
   },
@@ -141,7 +141,7 @@ const STEPS: Step[] = [
     mediaType: "video",
     mediaHint: "Placeholder: 20–40s tour clip: Home → Instructions → Workflow → Account",
     // ✅ Use /public-relative URL (NOT the Windows filesystem path)
-    mediaSrc: "/videos/n2a_step7_video.mp4",
+    mediaSrc: "/videos/n2a_step_video.mp4",
     // mediaPoster: "/images/step1_poster.jpg",
     cta: { label: "Open Workflow", to: "/workflow" },
   },
