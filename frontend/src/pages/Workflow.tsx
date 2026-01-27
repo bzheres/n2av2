@@ -483,8 +483,33 @@ function fieldToHtml(field: string) {
   return escapeHtml(noTabs).replace(/(?:\r\n|\r|\n)/g, "<br>");
 }
 
+/** ✅ NEW helpers: prompt + sanitize filename (NO UI FIELD ADDED) */
+function baseNameFromFilename(name: string) {
+  const n = (name || "").trim();
+  if (!n) return "";
+  return n.replace(/\.[^/.]+$/g, ""); // strip last extension
+}
+
+function sanitizeForFilename(name: string) {
+  // conservative: remove illegal characters + trim
+  const cleaned = String(name || "")
+    .trim()
+    .replace(/[<>:"/\\|?*\x00-\x1F]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return cleaned || "n2a";
+}
+
+function promptExportBaseName(defaultBase: string) {
+  // Returns null if user cancels
+  const proposed = sanitizeForFilename(defaultBase || "n2a");
+  const v = window.prompt("Name your export file (without extension):", proposed);
+  if (v === null) return null;
+  return sanitizeForFilename(v);
+}
+
 // --- APKG download helper ---
-async function downloadApkg(projectId: number) {
+async function downloadApkg(projectId: number, overrideBaseName?: string) {
   // Always prefer explicit API base. If env isn't set, fall back to production API domain.
   const rawBase = (import.meta as any).env?.VITE_API_BASE;
   const API_BASE = (rawBase && String(rawBase).trim()) || "https://api.n2a.com.au";
@@ -534,12 +559,14 @@ async function downloadApkg(projectId: number) {
   // Try extract filename from Content-Disposition
   const cd = resp.headers.get("content-disposition") || "";
   const m = cd.match(/filename="?([^"]+)"?/i);
-  const filename = m?.[1] || "n2a_deck.apkg";
+  const serverFilename = m?.[1] || "n2a_deck.apkg";
+
+  const finalFilename = overrideBaseName ? `${sanitizeForFilename(overrideBaseName)}.apkg` : serverFilename;
 
   const dlUrl = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = dlUrl;
-  a.download = filename;
+  a.download = finalFilename;
   a.click();
   URL.revokeObjectURL(dlUrl);
 }
@@ -807,7 +834,7 @@ export default function Workflow() {
   }
 
   // ✅ Export as TSV with HTML formatting for Anki (newline -> <br>)
-  function exportTSV() {
+  function exportTSVWithName(chosenBase: string) {
     const exportedCards = cards.map((c) => {
       if (c.card_type !== "mcq") return c;
 
@@ -829,12 +856,12 @@ export default function Workflow() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = (filename ? filename.replace(/\.md$/i, "") : "n2a") + ".tsv";
+    a.download = `${sanitizeForFilename(chosenBase)}.tsv`;
     a.click();
     URL.revokeObjectURL(url);
   }
 
-  async function exportAPKG() {
+  async function exportAPKGWithName(chosenBase: string) {
     if (!projectId) {
       setStatus("No project saved yet. Press Parse while logged in to save cards first.");
       return;
@@ -847,7 +874,7 @@ export default function Workflow() {
     setBusy(true);
     setStatus("Building APKG deck…");
     try {
-      await downloadApkg(projectId);
+      await downloadApkg(projectId, chosenBase);
       setStatus("APKG exported.");
     } catch (e: any) {
       setStatus(e?.message ? `APKG export failed: ${e.message}` : "APKG export failed.");
@@ -856,12 +883,16 @@ export default function Workflow() {
     }
   }
 
-  // ✅ One export action (switches by plan)
+  // ✅ One export action (switches by plan) + prompts for filename
   async function exportByPlan() {
+    const defaultBase = baseNameFromFilename(filename) || (projectId ? `project_${projectId}` : "n2a");
+    const chosen = promptExportBaseName(defaultBase);
+    if (!chosen) return; // user cancelled
+
     if (canApkg) {
-      await exportAPKG();
+      await exportAPKGWithName(chosen);
     } else {
-      exportTSV();
+      exportTSVWithName(chosen);
     }
   }
 
@@ -996,7 +1027,7 @@ export default function Workflow() {
     try {
       await runWithConcurrency(saved, concurrency, async (c) => {
         try {
-          await aiReviewCard(c.id, apply, mode);
+          await aiReviewCard((c as any).id, apply, mode);
           setBatch((b) => ({ ...b, done: b.done + 1 }));
         } catch {
           setBatch((b) => ({ ...b, done: b.done + 1, errors: b.errors + 1 }));
@@ -1085,7 +1116,6 @@ export default function Workflow() {
                 <div className="card-body space-y-4 h-full">
                   <div>
                     <h2 className="text-xl font-bold">1) Upload</h2>
-                    {/* ✅ Copy change */}
                     <p className="text-sm opacity-70">Drop your Notion markdown file</p>
                   </div>
 
@@ -1111,7 +1141,6 @@ export default function Workflow() {
 
                   <div className="rounded-xl border border-base-300 bg-base-200/40 p-3">
                     <div className="text-sm font-semibold">Need a template?</div>
-                    {/* ✅ Copy change */}
                     <div className="text-xs opacity-70 mt-1">
                       Duplicate the FREE notion template to copy the exact formatting N2A expects
                     </div>
@@ -1123,7 +1152,6 @@ export default function Workflow() {
                         target="_blank"
                         rel="noopener noreferrer"
                       >
-                        {/* ✅ Button text change */}
                         N2A Notion Template
                       </a>
                     </div>
@@ -1153,7 +1181,6 @@ export default function Workflow() {
                   <div className="flex items-start justify-between gap-3 flex-wrap">
                     <div>
                       <h2 className="text-xl font-bold">2) Parse & Review</h2>
-                      {/* ✅ Removed per request */}
                     </div>
 
                     <div className="flex flex-wrap gap-2">
@@ -1175,7 +1202,6 @@ export default function Workflow() {
                       <div className="flex items-center justify-between">
                         <div className="text-sm font-semibold">Filter</div>
 
-                        {/* ✅ Helper icon with hover tooltip */}
                         <div className="tooltip tooltip-left" data-tip="Filter cards by type: All, Q&A, or MCQ">
                           <button className="btn btn-ghost btn-xs" type="button" aria-label="Filter help">
                             i
@@ -1194,15 +1220,13 @@ export default function Workflow() {
                       </select>
                     </div>
 
-                    {/* ✅ MCQ FORMATTING CARD */}
+                    {/* MCQ FORMATTING CARD */}
                     <div className="rounded-2xl border border-base-300 bg-base-200/40 p-4 space-y-3">
                       <div>
-                        {/* ✅ Title change + removed grey text */}
                         <div className="text-sm font-semibold">Format MCQ Cards</div>
                       </div>
 
                       <div className="space-y-1">
-                        {/* ✅ More intuitive label */}
                         <div className="text-xs font-semibold opacity-70">Option numbering</div>
                         <select
                           className="select select-bordered w-full"
@@ -1220,10 +1244,8 @@ export default function Workflow() {
 
                       <div className="space-y-1">
                         <div className="flex items-center justify-between">
-                          {/* ✅ More intuitive label */}
                           <div className="text-xs font-semibold opacity-70">Answer display</div>
 
-                          {/* ✅ Helper icon with hover tooltip */}
                           <div
                             className="tooltip tooltip-left"
                             data-tip="Controls how MCQ answers are shown: keep original, label only, option text only, or label + option."
@@ -1244,13 +1266,11 @@ export default function Workflow() {
                           <option value="option_only">Answer only</option>
                           <option value="label_plus_option">Option and Answer</option>
                         </select>
-                        {/* ✅ Removed grey helper text line per request */}
                       </div>
                     </div>
 
                     {/* AI ENGLISH */}
                     <div className="rounded-2xl border border-base-300 bg-base-200/40 p-4 space-y-2">
-                      {/* ✅ More intuitive title + removed grey text */}
                       <div className="text-sm font-semibold">Spelling consistency</div>
 
                       <select
@@ -1273,7 +1293,6 @@ export default function Workflow() {
                       Parse
                     </button>
 
-                    {/* ✅ Clear label change */}
                     <button className="btn btn-outline w-full" disabled={busy} onClick={clearAll}>
                       Clear Cards
                     </button>
@@ -1356,7 +1375,6 @@ export default function Workflow() {
                 Cards <span className="text-primary">Preview</span>
               </h2>
 
-              {/* ✅ Updated helper copy */}
               <p className="opacity-70 text-sm">
                 Press Review to run AI content review, press Format to run AI format review, press Apply to apply AI suggested
                 changes, press Edit to modify card, press Delete to remove card from export
@@ -1368,7 +1386,9 @@ export default function Workflow() {
             <div className="card bg-base-200/40 border border-base-300 rounded-2xl">
               <div className="card-body text-center space-y-2">
                 <div className="text-lg font-semibold">No cards to show</div>
-                <div className="text-sm opacity-70">{cards.length ? "Try changing the Filter." : "Upload a Markdown export, then press Parse."}</div>
+                <div className="text-sm opacity-70">
+                  {cards.length ? "Try changing the Filter." : "Upload a Markdown export, then press Parse."}
+                </div>
               </div>
             </div>
           ) : (
