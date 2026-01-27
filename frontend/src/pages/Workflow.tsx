@@ -211,6 +211,17 @@ function uid() {
   return Math.random().toString(36).slice(2) + "-" + Date.now().toString(36);
 }
 
+/** ✅ Safe across TS targets (no replaceAll), keeps only filename-safe chars */
+function sanitizeForFilename(name: string) {
+  const base = String(name ?? "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .replace(/[\\/:*?"<>|]+/g, "-")
+    .replace(/\.+$/g, "")
+    .trim();
+  return base || "n2a";
+}
+
 function formatMcqOptions(front: string, style: McqStyle): string {
   const lines = front.split("\n");
   if (lines.length <= 1) return front;
@@ -470,46 +481,21 @@ function isFormatFlag(flag: string | null | undefined) {
 // --- TSV + HTML helpers (for Anki import) ---
 function escapeHtml(s: string) {
   return String(s ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 function fieldToHtml(field: string) {
   // Make content tab-safe, HTML-safe, and preserve newlines in Anki via <br>.
-  const noTabs = String(field ?? "").replaceAll("\t", "    ");
+  const noTabs = String(field ?? "").replace(/\t/g, "    ");
   return escapeHtml(noTabs).replace(/(?:\r\n|\r|\n)/g, "<br>");
 }
 
-/** ✅ NEW helpers: prompt + sanitize filename (NO UI FIELD ADDED) */
-function baseNameFromFilename(name: string) {
-  const n = (name || "").trim();
-  if (!n) return "";
-  return n.replace(/\.[^/.]+$/g, ""); // strip last extension
-}
-
-function sanitizeForFilename(name: string) {
-  // conservative: remove illegal characters + trim
-  const cleaned = String(name || "")
-    .trim()
-    .replace(/[<>:"/\\|?*\x00-\x1F]/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-  return cleaned || "n2a";
-}
-
-function promptExportBaseName(defaultBase: string) {
-  // Returns null if user cancels
-  const proposed = sanitizeForFilename(defaultBase || "n2a");
-  const v = window.prompt("Name your export file (without extension):", proposed);
-  if (v === null) return null;
-  return sanitizeForFilename(v);
-}
-
-// --- APKG download helper ---
-async function downloadApkg(projectId: number, overrideBaseName?: string) {
+// --- APKG download helper (now supports overriding the downloaded filename) ---
+async function downloadApkg(projectId: number, overrideFilename?: string) {
   // Always prefer explicit API base. If env isn't set, fall back to production API domain.
   const rawBase = (import.meta as any).env?.VITE_API_BASE;
   const API_BASE = (rawBase && String(rawBase).trim()) || "https://api.n2a.com.au";
@@ -561,7 +547,9 @@ async function downloadApkg(projectId: number, overrideBaseName?: string) {
   const m = cd.match(/filename="?([^"]+)"?/i);
   const serverFilename = m?.[1] || "n2a_deck.apkg";
 
-  const finalFilename = overrideBaseName ? `${sanitizeForFilename(overrideBaseName)}.apkg` : serverFilename;
+  const finalName =
+    (overrideFilename ? sanitizeForFilename(overrideFilename) : "") || serverFilename.replace(/\.apkg$/i, "");
+  const finalFilename = finalName.toLowerCase().endsWith(".apkg") ? finalName : `${finalName}.apkg`;
 
   const dlUrl = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -613,6 +601,11 @@ export default function Workflow() {
     mode: AIMode | null;
     apply: boolean;
   }>({ running: false, total: 0, done: 0, errors: 0, mode: null, apply: false });
+
+  // ✅ Export naming modal (no new permanent UI field)
+  const [exportModalOpen, setExportModalOpen] = React.useState(false);
+  const [exportName, setExportName] = React.useState("");
+  const exportInputRef = React.useRef<HTMLInputElement | null>(null);
 
   // ---- Auth load ----
   React.useEffect(() => {
@@ -834,7 +827,7 @@ export default function Workflow() {
   }
 
   // ✅ Export as TSV with HTML formatting for Anki (newline -> <br>)
-  function exportTSVWithName(chosenBase: string) {
+  function exportTSV(namedBase?: string) {
     const exportedCards = cards.map((c) => {
       if (c.card_type !== "mcq") return c;
 
@@ -856,12 +849,15 @@ export default function Workflow() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${sanitizeForFilename(chosenBase)}.tsv`;
+
+    const base = sanitizeForFilename(namedBase || (filename ? filename.replace(/\.md$/i, "") : "n2a"));
+    a.download = base.toLowerCase().endsWith(".tsv") ? base : base + ".tsv";
+
     a.click();
     URL.revokeObjectURL(url);
   }
 
-  async function exportAPKGWithName(chosenBase: string) {
+  async function exportAPKG(namedBase?: string) {
     if (!projectId) {
       setStatus("No project saved yet. Press Parse while logged in to save cards first.");
       return;
@@ -874,7 +870,7 @@ export default function Workflow() {
     setBusy(true);
     setStatus("Building APKG deck…");
     try {
-      await downloadApkg(projectId, chosenBase);
+      await downloadApkg(projectId, namedBase);
       setStatus("APKG exported.");
     } catch (e: any) {
       setStatus(e?.message ? `APKG export failed: ${e.message}` : "APKG export failed.");
@@ -883,16 +879,31 @@ export default function Workflow() {
     }
   }
 
-  // ✅ One export action (switches by plan) + prompts for filename
-  async function exportByPlan() {
-    const defaultBase = baseNameFromFilename(filename) || (projectId ? `project_${projectId}` : "n2a");
-    const chosen = promptExportBaseName(defaultBase);
-    if (!chosen) return; // user cancelled
+  // ✅ Instead of exporting immediately, open a centered modal to name the export
+  function openExportModal() {
+    const defaultBase = filename ? filename.replace(/\.(md|html)$/i, "") : canApkg ? "n2a_deck" : "n2a";
+    setExportName(sanitizeForFilename(defaultBase || "n2a"));
+    setExportModalOpen(true);
+
+    // focus the input next tick
+    window.setTimeout(() => {
+      exportInputRef.current?.focus();
+      exportInputRef.current?.select();
+    }, 0);
+  }
+
+  function closeExportModal() {
+    setExportModalOpen(false);
+  }
+
+  async function confirmExport() {
+    const chosen = sanitizeForFilename(exportName || "");
+    setExportModalOpen(false);
 
     if (canApkg) {
-      await exportAPKGWithName(chosen);
+      await exportAPKG(chosen);
     } else {
-      exportTSVWithName(chosen);
+      exportTSV(chosen);
     }
   }
 
@@ -1027,7 +1038,7 @@ export default function Workflow() {
     try {
       await runWithConcurrency(saved, concurrency, async (c) => {
         try {
-          await aiReviewCard((c as any).id, apply, mode);
+          await aiReviewCard(c.id, apply, mode);
           setBatch((b) => ({ ...b, done: b.done + 1 }));
         } catch {
           setBatch((b) => ({ ...b, done: b.done + 1, errors: b.errors + 1 }));
@@ -1082,6 +1093,71 @@ export default function Workflow() {
   // ---------- UI ----------
   return (
     <div className="-mx-4 md:-mx-6 lg:-mx-8">
+      {/* ✅ Centered modal overlay for naming export */}
+      {exportModalOpen && (
+        <div
+          className="fixed inset-0 z-[1200] flex items-center justify-center"
+          role="dialog"
+          aria-modal="true"
+          onMouseDown={(e) => {
+            // click outside to close
+            if (e.target === e.currentTarget) closeExportModal();
+          }}
+        >
+          {/* Backdrop */}
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
+
+          {/* Modal */}
+          <div className="relative w-[92vw] max-w-md">
+            <div className="card bg-base-100 border border-base-300 shadow-2xl rounded-2xl">
+              <div className="card-body space-y-4">
+                <div className="space-y-1">
+                  <div className="text-lg font-extrabold">Name your export</div>
+                  <div className="text-sm opacity-70">
+                    {canApkg ? "This will download an Anki .apkg file." : "This will download a .tsv file for Anki import."}
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-xs font-semibold opacity-70">Filename</label>
+                  <div className="join w-full">
+                    <input
+                      ref={exportInputRef}
+                      className="input input-bordered join-item w-full"
+                      value={exportName}
+                      onChange={(e) => setExportName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Escape") closeExportModal();
+                        if (e.key === "Enter") void confirmExport();
+                      }}
+                      placeholder="e.g. Radiology Physics Week 1"
+                    />
+                    <span className="join-item px-3 inline-flex items-center border border-base-300 bg-base-200/60 text-sm opacity-80 select-none">
+                      {canApkg ? ".apkg" : ".tsv"}
+                    </span>
+                  </div>
+                  <div className="text-xs opacity-60">
+                    Invalid characters will be replaced automatically (e.g. / \ : * ? &quot; &lt; &gt; |).
+                  </div>
+                </div>
+
+                <div className="flex gap-2 justify-end pt-2">
+                  <button className="btn btn-ghost" onClick={closeExportModal}>
+                    Cancel
+                  </button>
+                  <button
+                    className={["btn", canApkg ? "btn-accent" : "btn-secondary"].join(" ")}
+                    onClick={() => void confirmExport()}
+                  >
+                    Download
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* HEADER BAND */}
       <section className="px-4 md:px-6 lg:px-8 py-10 md:py-12 bg-base-100">
         <div className="max-w-6xl mx-auto text-center space-y-3">
@@ -1287,7 +1363,7 @@ export default function Workflow() {
                     </div>
                   </div>
 
-                  {/* Primary buttons (single export button) */}
+                  {/* Primary buttons */}
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <button className="btn btn-primary w-full" disabled={!raw || busy} onClick={doParse}>
                       Parse
@@ -1301,7 +1377,7 @@ export default function Workflow() {
                       className={exportBtnClass}
                       disabled={!parsedCount || busy || (canApkg && !projectId)}
                       title={canApkg && !projectId ? "Parse while logged in to create a Project before exporting APKG" : exportTitle}
-                      onClick={() => void exportByPlan()}
+                      onClick={openExportModal}
                     >
                       {exportLabel}
                     </button>
