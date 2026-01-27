@@ -1,5 +1,6 @@
 // src/pages/Workflow.tsx
 import React from "react";
+import UploadBox from "../components/UploadBox";
 import { meCached } from "../auth";
 import { apiFetch } from "../api";
 
@@ -37,6 +38,8 @@ type Card = {
 
 /* ------------------------------------------------------------------ */
 /* Diff helper: line-based "good enough" visual diff for flashcards.   */
+/* - Added lines: primary-tinted highlight                             */
+/* - Removed lines: error-tinted + strikethrough                       */
 /* ------------------------------------------------------------------ */
 type DiffLine = { kind: "same" | "add" | "remove"; text: string };
 
@@ -113,279 +116,101 @@ function DiffBlock({ original, suggested }: { original: string; suggested: strin
   );
 }
 
-/* ------------------------------------------------------------------ */
-/* File ingest: accepts Notion exports as .md, .html, or .zip.          */
-/* - .zip: picks the first .md (preferred) else first .html inside      */
-/* - requires: npm i fflate                                             */
-/* ------------------------------------------------------------------ */
-type IngestKind = "md" | "html";
-
-function uid() {
-  return Math.random().toString(36).slice(2) + "-" + Date.now().toString(36);
-}
-
-async function readFileAsText(file: File): Promise<string> {
-  return await file.text();
-}
-
-async function extractFromZip(file: File): Promise<{ text: string; name: string; kind: IngestKind }> {
-  // Notion exports .zip that contains lots of assets + one main .md or .html
-  const { unzipSync, strFromU8 } = await import("fflate");
-  const u8 = new Uint8Array(await file.arrayBuffer());
-  const unz = unzipSync(u8);
-
-  const entries = Object.keys(unz);
-  const pick = (exts: string[]) => entries.find((p) => exts.some((e) => p.toLowerCase().endsWith(e)));
-
-  const mdPath = pick([".md"]);
-  const htmlPath = pick([".html", ".htm"]);
-  const chosen = mdPath || htmlPath;
-
-  if (!chosen) {
-    throw new Error("Zip did not contain a .md or .html file. Export from Notion and upload the export zip.");
-  }
-
-  const bytes = unz[chosen];
-  const text = strFromU8(bytes);
-
-  const kind: IngestKind = mdPath ? "md" : "html";
-  const baseName = chosen.split("/").pop() || chosen;
-  return { text, name: baseName, kind };
-}
-
-/* ------------------------------------------------------------------ */
-/* HTML -> pseudo-markdown lines (best-effort)                          */
-/* We turn list items into '- ' lines; headings/paragraphs into lines.  */
-/* Then we reuse the same markdown parsing logic.                       */
-/* ------------------------------------------------------------------ */
-function htmlToPseudoMarkdownLines(html: string): string[] {
-  const doc = new DOMParser().parseFromString(html, "text/html");
-  const body = doc.body;
-
-  const lines: string[] = [];
-
-  // Helpers
-  const pushLine = (s: string) => {
-    const t = (s ?? "").replace(/\u00a0/g, " ").replace(/\s+$/g, "");
-    if (t.trim().length === 0) return;
-    lines.push(t);
+function parseMarkdown(md: string): Omit<Card, "id">[] {
+  const lines = md.split(/\r?\n/);
+  const norm = (l: string) => {
+    const s = l.trim().toLowerCase();
+    if (s.startsWith("question:") || s.startsWith("quesition:") || s.startsWith("quesiton:")) return "question";
+    if (s.startsWith("mcq:") || s.startsWith("mcu:")) return "mcq";
+    return null;
   };
-
-  const walk = (node: Node, indent: string) => {
-    if (node.nodeType === Node.TEXT_NODE) {
-      const txt = (node.textContent || "").replace(/\s+/g, " ");
-      if (txt.trim()) pushLine(indent + txt.trim());
-      return;
-    }
-
-    if (!(node instanceof Element)) return;
-
-    const tag = node.tagName.toLowerCase();
-
-    // Treat these as line breaks / block lines
-    const isBlock = ["p", "li", "summary", "h1", "h2", "h3", "h4", "h5", "h6"].includes(tag);
-
-    if (tag === "li") {
-      // list item -> bullet line with '- '
-      const text = (node.textContent || "").trim();
-      if (text) pushLine(indent + "- " + text);
-      // nested lists under LI become more indented
-      Array.from(node.children).forEach((ch) => {
-        const childTag = ch.tagName.toLowerCase();
-        if (childTag === "ul" || childTag === "ol") walk(ch, indent + "  ");
-      });
-      return;
-    }
-
-    if (tag === "ul" || tag === "ol") {
-      Array.from(node.children).forEach((ch) => walk(ch, indent));
-      return;
-    }
-
-    if (tag === "details") {
-      // details acts like toggle: summary line, then contents indented
-      const summary = node.querySelector(":scope > summary");
-      if (summary) {
-        const s = (summary.textContent || "").trim();
-        if (s) pushLine(indent + "- " + s);
-      }
-      Array.from(node.children).forEach((ch) => {
-        if (ch.tagName.toLowerCase() === "summary") return;
-        walk(ch, indent + "  ");
-      });
-      return;
-    }
-
-    if (isBlock) {
-      const text = (node.textContent || "").trim();
-      if (text) pushLine(indent + text);
-      return;
-    }
-
-    // Default: recurse
-    Array.from(node.childNodes).forEach((ch) => walk(ch, indent));
-  };
-
-  Array.from(body.childNodes).forEach((n) => walk(n, ""));
-  return lines;
-}
-
-/* ------------------------------------------------------------------ */
-/* Parsing logic (improved for Notion exports)                          */
-/* - Accept tags even when bullet/toggle prefixed ("- Question:")       */
-/* - Accept Q: as Question                                               */
-/* - Accept indentation of ANY number of spaces or a tab (not just 4)    */
-/* - MCQ options: any bullet/indented line until Answer:                 */
-/* - MCQ answer: supports Answer: same line OR following indented lines  */
-/* ------------------------------------------------------------------ */
-function stripLeadDecor(line: string): string {
-  // remove leading bullets, checkbox markers, and indentation
-  // Examples:
-  // "- Question: ..." => "Question: ..."
-  // "  - MCQ: ..."    => "MCQ: ..."
-  return line.replace(/^\s*([-*•]\s+)+/, "").replace(/^\s+/, "");
-}
-
-function normTag(line: string): "question" | "mcq" | "answer" | null {
-  const s0 = stripLeadDecor(line).trim().toLowerCase();
-
-  // tolerate common misspellings
-  if (
-    s0.startsWith("question:") ||
-    s0.startsWith("quesition:") ||
-    s0.startsWith("quesiton:") ||
-    s0.startsWith("q:")
-  ) {
-    return "question";
-  }
-  if (s0.startsWith("mcq:") || s0.startsWith("mcu:") || s0 === "mcq") return "mcq";
-  if (s0.startsWith("answer:")) return "answer";
-  return null;
-}
-
-function isIndentedOrBullet(line: string): boolean {
-  // ANY leading whitespace counts (covers Notion "tab" that becomes 2 spaces)
-  // Also treat list/toggle bullet as indented content
-  return /^\s+/.test(line) || /^\s*[-*•]\s+/.test(line);
-}
-
-function cleanIndentedLine(line: string): string {
-  // remove one layer of indentation/bullets but preserve inner structure
-  return line.replace(/^\s*[-*•]\s+/, "").replace(/^\s+/, "").replace(/\s+$/g, "");
-}
-
-function parseMarkdownOrPseudoLines(mdOrLines: string | string[], kind: IngestKind): Omit<Card, "id">[] {
-  const lines = Array.isArray(mdOrLines) ? mdOrLines : mdOrLines.split(/\r?\n/);
 
   const out: Omit<Card, "id">[] = [];
   let i = 0;
 
   while (i < lines.length) {
-    const tag = normTag(lines[i]);
-    if (!tag || tag === "answer") {
+    const tag = norm(lines[i]);
+    if (!tag) {
       i++;
       continue;
     }
 
     if (tag === "question") {
-      const q = stripLeadDecor(lines[i]).split(":", 2)[1]?.trim() || "";
+      const q = lines[i].split(":", 2)[1].trim();
       i++;
-
       const ans: string[] = [];
       while (i < lines.length) {
-        const t = normTag(lines[i]);
-        if (t === "question" || t === "mcq") break;
-
+        if (norm(lines[i])) break;
         const nxt = lines[i];
 
+        if (/^(\s{4}|\t|-\s|\*\s)/.test(nxt)) {
+          ans.push(nxt.replace(/^(\s{4}|\t|-\s|\*\s)/, "").trimEnd());
+          i++;
+          continue;
+        }
         if (nxt.trim() === "") {
           if (ans.length) ans.push("");
           i++;
           continue;
         }
-
-        if (isIndentedOrBullet(nxt)) {
-          ans.push(cleanIndentedLine(nxt));
-          i++;
-          continue;
-        }
-
-        // flat, non-empty line ends the answer once we've started capturing
         if (ans.length) break;
-
-        // otherwise ignore stray flat text before answer begins
         i++;
       }
-
       out.push({ card_type: "qa", front: q, back: ans.join("\n").trim() });
       continue;
     }
 
-    // MCQ
-    const stem = stripLeadDecor(lines[i]).split(":", 2)[1]?.trim() || "";
-    i++;
+    if (tag === "mcq") {
+      const stem = lines[i].split(":", 2)[1].trim();
+      i++;
+      const opts: string[] = [];
+      let ans = "";
+      let inAns = false;
 
-    const opts: string[] = [];
-    const ansLines: string[] = [];
-    let inAns = false;
-
-    while (i < lines.length) {
-      const t = normTag(lines[i]);
-      if (t === "question" || t === "mcq") break;
-
-      const nxt = lines[i];
-
-      if (nxt.trim() === "") {
-        if (inAns && ansLines.length) ansLines.push("");
-        i++;
-        continue;
-      }
-
-      if (t === "answer") {
-        const after = stripLeadDecor(nxt).split(":", 2)[1]?.trim() || "";
-        inAns = true;
-        if (after) ansLines.push(after);
-        i++;
-        continue;
-      }
-
-      if (!inAns) {
-        if (isIndentedOrBullet(nxt)) {
-          opts.push(cleanIndentedLine(nxt));
+      while (i < lines.length) {
+        if (norm(lines[i])) break;
+        const nxt = lines[i];
+        if (nxt.trim() === "") {
+          i++;
+          continue;
+        }
+        if (nxt.trim().toLowerCase().startsWith("answer:")) {
+          inAns = true;
+          i++;
+          continue;
+        }
+        if (inAns) {
+          if (/^(\s{4}|\t)/.test(nxt)) {
+            ans = nxt.trim();
+            i++;
+            continue;
+          }
+          break;
+        }
+        if (/^(\s{4}|\t|-\s|\*\s)/.test(nxt)) {
+          opts.push(nxt.replace(/^(\s{4}|\t|-\s|\*\s)/, "").trimEnd());
           i++;
           continue;
         }
         break;
       }
 
-      if (isIndentedOrBullet(nxt)) {
-        ansLines.push(cleanIndentedLine(nxt));
-        i++;
-        continue;
-      }
-
-      if (!ansLines.length) {
-        ansLines.push(stripLeadDecor(nxt).trim());
-        i++;
-        continue;
-      }
-
-      break;
+      out.push({
+        card_type: "mcq",
+        front: opts.length ? `${stem}\n${opts.join("\n")}` : stem,
+        back: ans.trim(),
+      });
+      continue;
     }
-
-    out.push({
-      card_type: "mcq",
-      front: opts.length ? `${stem}\n${opts.join("\n")}` : stem,
-      back: ansLines.join("\n").trim(),
-    });
   }
 
   return out;
 }
 
-/* ------------------------------------------------------------------ */
-/* Existing MCQ formatting / TSV / APKG helpers (unchanged)             */
-/* ------------------------------------------------------------------ */
+function uid() {
+  return Math.random().toString(36).slice(2) + "-" + Date.now().toString(36);
+}
+
 function formatMcqOptions(front: string, style: McqStyle): string {
   const lines = front.split("\n");
   if (lines.length <= 1) return front;
@@ -424,13 +249,19 @@ function formatMcqOptions(front: string, style: McqStyle): string {
   return [stem, ...rebuilt].join("\n");
 }
 
+/**
+ * ✅ FIXED: Only rewrite MCQ answer if it really looks like a label (A/B/C or 1/2/3)
+ * Prevents "Photoelectric effect" -> "16) hotoelectric effect"
+ */
 function formatMcqAnswer(back: string, style: McqStyle): string {
   const raw0 = (back || "").trim();
   if (!raw0) return raw0;
 
+  // strip optional "Answer:" prefix
   const raw = raw0.replace(/^answer:\s*/i, "").trim();
   if (!raw) return raw0;
 
+  // Match: token + optional delimiter + optional rest
   const m = raw.match(/^([A-Za-z]|\d+)\s*([)\.:])?\s*(.*)$/);
   if (!m) return raw0;
 
@@ -441,12 +272,14 @@ function formatMcqAnswer(back: string, style: McqStyle): string {
   const isNum = /^\d+$/.test(token);
   const isLetter = /^[A-Za-z]$/.test(token);
 
+  // If it's a letter with no delimiter and the rest looks like a word continuation, do nothing.
   if (isLetter) {
     const restStartsLower = rest.length > 0 && /^[a-z]/.test(rest);
     const looksLikeWordContinuation = !delim && restStartsLower;
     if (looksLikeWordContinuation) return raw0;
   }
 
+  // Similar safety for numerals: avoid "2 diabetes" becoming "2) diabetes"
   if (isNum && !delim && rest) {
     const restStartsLower = /^[a-z]/.test(rest);
     if (restStartsLower) return raw0;
@@ -487,6 +320,12 @@ function formatMcqAnswer(back: string, style: McqStyle): string {
   return rest ? `${label} ${rest}` : label;
 }
 
+/**
+ * ✅ MCQ answer formatting (default/label/option/label+option).
+ * Key fix:
+ * - For label_plus_option, we ALSO reverse-map option-only answers to their labeled option line.
+ * - For option_only, we can also map label-only or label+option to just text.
+ */
 function expandMcqAnswerIfLabelOnly(args: {
   cardFront: string;
   cardBack: string;
@@ -498,9 +337,11 @@ function expandMcqAnswerIfLabelOnly(args: {
   const original = (cardBack ?? "").trim();
   if (mode === "default") return original;
 
+  // Normalize label styling only if it looks label-ish (safe)
   const base = formatMcqAnswer(original, style).trim();
   if (!base) return base;
 
+  // Build normalized options with the currently selected style
   const frontFormatted = formatMcqOptions(cardFront, style);
   const lines = frontFormatted.split("\n");
   const optLines = lines
@@ -533,13 +374,14 @@ function expandMcqAnswerIfLabelOnly(args: {
 
   const stripLeadingLabel = (s: string) => s.replace(/^\s*([A-Za-z]|\d+)[)\.]\s+/, "").trim();
 
+  // More tolerant normalize for matching option text
   const normalize = (s: string) =>
     s
       .toLowerCase()
       .replace(/[“”]/g, '"')
       .replace(/[‘’]/g, "'")
       .replace(/\s+/g, " ")
-      .replace(/[^\w\s\-+./%()]/g, "")
+      .replace(/[^\w\s\-+./%()]/g, "") // mild punctuation tolerance
       .trim();
 
   const labelTokenToIndex = (token: string) => {
@@ -548,9 +390,14 @@ function expandMcqAnswerIfLabelOnly(args: {
     return null;
   };
 
+  // Find index from:
+  // 1) pure label: "B" / "2" / "B)" / "2."
+  // 2) label+text: "B) Compton scatter"
+  // 3) option-only: "Compton scatter"
   const findIndex = (): number | null => {
     if (!optLines.length) return null;
 
+    // 1) Pure label token
     const pureLabel = base.match(/^([A-Za-z]|\d+)\s*([)\.])?$/);
     if (pureLabel) {
       const idx = labelTokenToIndex(pureLabel[1]);
@@ -558,11 +405,13 @@ function expandMcqAnswerIfLabelOnly(args: {
       return idx >= 0 && idx < optLines.length ? idx : null;
     }
 
+    // 2) Starts with label+delim (e.g. "B) xxx" or "2. yyy")
     const withLabel = base.match(/^\s*([A-Za-z]|\d+)\s*[)\.]\s+(.+)$/);
     if (withLabel) {
       const idx = labelTokenToIndex(withLabel[1]);
       if (idx != null && idx >= 0 && idx < optLines.length) return idx;
 
+      // If label is weird, still try matching the text portion
       const targetText = normalize(withLabel[2]);
       for (let i = 0; i < optLines.length; i++) {
         const optText = normalize(stripLeadingLabel(optLines[i]));
@@ -571,6 +420,7 @@ function expandMcqAnswerIfLabelOnly(args: {
       return null;
     }
 
+    // 3) Option-only: match against option text
     const target = normalize(stripLeadingLabel(base));
     if (!target) return null;
 
@@ -583,17 +433,41 @@ function expandMcqAnswerIfLabelOnly(args: {
   };
 
   const idx = findIndex();
+
+  // If we can’t map safely, do nothing (safe fallback)
   if (idx == null) return base;
 
-  const optionLine = optLines[idx];
-  const optionText = stripLeadingLabel(optionLine);
+  const optionLine = optLines[idx]; // e.g. "2) 1.02 MeV"
+  const optionText = stripLeadingLabel(optionLine); // e.g. "1.02 MeV"
 
-  if (mode === "label_only") return labelFor(idx);
-  if (mode === "option_only") return optionText || base;
+  if (mode === "label_only") {
+    return labelFor(idx);
+  }
 
+  if (mode === "option_only") {
+    return optionText || base;
+  }
+
+  // mode === "label_plus_option"
+  // ✅ Key fix: ALWAYS output label+option once mapped, even if stored answer was option-only
   return optionLine || `${labelFor(idx)} ${optionText}`.trim();
 }
 
+function normFlag(flag: string | null | undefined) {
+  return (flag ?? "").trim().toLowerCase();
+}
+
+function isIncorrectFlag(flag: string | null | undefined) {
+  const f = normFlag(flag);
+  return f === "incorrect" || f === "wrong" || f.includes("incorrect");
+}
+
+function isFormatFlag(flag: string | null | undefined) {
+  const f = normFlag(flag);
+  return f.startsWith("format_") || f === "format_changed" || f === "format_ok";
+}
+
+// --- TSV + HTML helpers (for Anki import) ---
 function escapeHtml(s: string) {
   return String(s ?? "")
     .replaceAll("&", "&amp;")
@@ -604,12 +478,14 @@ function escapeHtml(s: string) {
 }
 
 function fieldToHtml(field: string) {
+  // Make content tab-safe, HTML-safe, and preserve newlines in Anki via <br>.
   const noTabs = String(field ?? "").replaceAll("\t", "    ");
   return escapeHtml(noTabs).replace(/(?:\r\n|\r|\n)/g, "<br>");
 }
 
 // --- APKG download helper ---
 async function downloadApkg(projectId: number) {
+  // Always prefer explicit API base. If env isn't set, fall back to production API domain.
   const rawBase = (import.meta as any).env?.VITE_API_BASE;
   const API_BASE = (rawBase && String(rawBase).trim()) || "https://api.n2a.com.au";
 
@@ -617,11 +493,14 @@ async function downloadApkg(projectId: number) {
 
   const resp = await fetch(url, {
     method: "GET",
-    credentials: "include",
-    headers: { Accept: "application/octet-stream" },
+    credentials: "include", // keep if your backend uses cookies
+    headers: {
+      Accept: "application/octet-stream",
+    },
   });
 
   if (!resp.ok) {
+    // Try to show a helpful error if backend returned JSON detail
     try {
       const j = await resp.json();
       throw new Error(j?.detail || `APKG export failed (${resp.status})`);
@@ -630,6 +509,7 @@ async function downloadApkg(projectId: number) {
     }
   }
 
+  // Guard: if we accidentally hit the frontend, it will return HTML
   const ct = (resp.headers.get("content-type") || "").toLowerCase();
   if (ct.includes("text/html")) {
     const text = await resp.text();
@@ -638,8 +518,10 @@ async function downloadApkg(projectId: number) {
   }
 
   const blob = await resp.blob();
+
+  // extra safety: APKG is a zip; first 2 bytes should be PK
   const head = new Uint8Array(await blob.slice(0, 2).arrayBuffer());
-  const looksZip = head.length === 2 && head[0] === 0x50 && head[1] === 0x4b;
+  const looksZip = head.length === 2 && head[0] === 0x50 && head[1] === 0x4b; // "PK"
   if (!looksZip) {
     try {
       const text = await blob.text();
@@ -649,6 +531,7 @@ async function downloadApkg(projectId: number) {
     }
   }
 
+  // Try extract filename from Content-Disposition
   const cd = resp.headers.get("content-disposition") || "";
   const m = cd.match(/filename="?([^"]+)"?/i);
   const filename = m?.[1] || "n2a_deck.apkg";
@@ -661,113 +544,48 @@ async function downloadApkg(projectId: number) {
   URL.revokeObjectURL(dlUrl);
 }
 
-/* ------------------------------------------------------------------ */
-/* UI component: file drop + picker                                    */
-/* ------------------------------------------------------------------ */
-function FileDrop(props: {
-  disabled?: boolean;
-  onLoaded: (args: { text: string; filename: string; kind: IngestKind }) => void;
-  onError: (msg: string) => void;
-}) {
-  const { disabled, onLoaded, onError } = props;
-  const inputRef = React.useRef<HTMLInputElement | null>(null);
-
-  const handleFile = React.useCallback(
-    async (file: File) => {
-      try {
-        const lower = (file.name || "").toLowerCase();
-
-        if (lower.endsWith(".zip")) {
-          const { text, name, kind } = await extractFromZip(file);
-          onLoaded({ text, filename: name, kind });
-          return;
-        }
-
-        if (lower.endsWith(".html") || lower.endsWith(".htm")) {
-          const text = await readFileAsText(file);
-          onLoaded({ text, filename: file.name, kind: "html" });
-          return;
-        }
-
-        const text = await readFileAsText(file);
-        onLoaded({ text, filename: file.name, kind: "md" });
-      } catch (e: any) {
-        const msg =
-          e?.message ||
-          "Failed to read file. If you're uploading a Notion export zip, install fflate: `npm i fflate` and retry.";
-        onError(msg);
-      }
-    },
-    [onLoaded, onError]
-  );
-
-  return (
-    <div
-      className={[
-        "rounded-2xl border border-base-300 bg-base-200/40 p-4",
-        disabled ? "opacity-60 pointer-events-none" : "cursor-pointer",
-      ].join(" ")}
-      role="button"
-      tabIndex={0}
-      onClick={() => inputRef.current?.click()}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") inputRef.current?.click();
-      }}
-      onDragOver={(e) => {
-        e.preventDefault();
-        e.stopPropagation();
-      }}
-      onDrop={(e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        const f = e.dataTransfer.files?.[0];
-        if (f) void handleFile(f);
-      }}
-      aria-label="Upload a Notion export (.md, .html, or .zip)"
-      title="Upload a Notion export (.md, .html, or .zip)"
-    >
-      <input
-        ref={inputRef}
-        type="file"
-        className="hidden"
-        accept=".md,.markdown,.html,.htm,.zip"
-        onChange={(e) => {
-          const f = e.target.files?.[0];
-          if (f) void handleFile(f);
-          e.currentTarget.value = "";
-        }}
-      />
-
-      <div className="flex items-start gap-3">
-        <div className="badge badge-outline mt-1">Upload</div>
-        <div className="space-y-1">
-          <div className="font-semibold">Drop a Notion export here</div>
-          <div className="text-xs opacity-70">Accepted: .md, .html, or Notion export .zip</div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export default function Workflow() {
   const [user, setUser] = React.useState<any>(null);
   const [authLoading, setAuthLoading] = React.useState(true);
 
   const [raw, setRaw] = React.useState("");
   const [filename, setFilename] = React.useState("");
-  const [ingestKind, setIngestKind] = React.useState<IngestKind>("md");
-
   const [cards, setCards] = React.useState<Card[]>([]);
+
   const [status, setStatus] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
 
+  // Controls
   const [mcqStyle, setMcqStyle] = React.useState<McqStyle>("1)");
+  // ✅ DEFAULT: keep imported answer format (mixed per-card)
   const [mcqAnswerMode, setMcqAnswerMode] = React.useState<McqAnswerMode>("default");
   const [englishVariant, setEnglishVariant] = React.useState<EnglishVariant>("uk_au");
   const [filterMode, setFilterMode] = React.useState<FilterMode>("all");
 
+  // Edit toggle per-card
   const [editingIds, setEditingIds] = React.useState<Set<string>>(() => new Set());
+
+  // Persistence
   const [projectId, setProjectId] = React.useState<number | null>(null);
+
+  // Local UI memory
+  const [aiReviewedIds, setAiReviewedIds] = React.useState<Set<string>>(() => new Set());
+
+  // Per-card spinner
+  const [aiLoadingIds, setAiLoadingIds] = React.useState<Set<string>>(() => new Set());
+
+  // Track which mode was last run per card (so we can decide whether to show diff)
+  const [aiLastModeById, setAiLastModeById] = React.useState<Record<string, AIMode>>({});
+
+  // Batch progress
+  const [batch, setBatch] = React.useState<{
+    running: boolean;
+    total: number;
+    done: number;
+    errors: number;
+    mode: AIMode | null;
+    apply: boolean;
+  }>({ running: false, total: 0, done: 0, errors: 0, mode: null, apply: false });
 
   // ---- Auth load ----
   React.useEffect(() => {
@@ -788,26 +606,129 @@ export default function Workflow() {
     };
   }, []);
 
-  const canAI = !!user && user.plan && user.plan !== "free" && user.plan !== "guest";
-  const canApkg = canAI;
+  // ---- Resume latest project on refresh (logged in only) ----
+  React.useEffect(() => {
+    if (authLoading) return;
+    if (!user) return;
 
+    let alive = true;
+
+    (async () => {
+      try {
+        const latest = await apiFetch<{ project: { id: number; name?: string } | null }>("/projects/latest");
+        if (!alive) return;
+        if (!latest.project) return;
+
+        const pid = latest.project.id;
+        setProjectId(pid);
+
+        const res = await apiFetch<{ cards: any[] }>(`/projects/${pid}/cards`);
+        if (!alive) return;
+
+        const loaded = (res.cards || []).map((c) => ({
+          id: String(c.id),
+          card_type: c.card_type as CardType,
+          front: c.front,
+          back: c.back,
+          ai_changed: c.ai_changed ?? null,
+          ai_flag: c.ai_flag ?? null,
+          ai_feedback: c.ai_feedback ?? null,
+          ai_suggest_front: c.ai_suggest_front ?? null,
+          ai_suggest_back: c.ai_suggest_back ?? null,
+        })) as Card[];
+
+        if (loaded.length) {
+          setCards(loaded);
+          setStatus(`Resumed Project #${pid} (${loaded.length} cards).`);
+        }
+      } catch {
+        // silent
+      }
+    })();
+
+    return () => {
+      alive = false;
+    };
+  }, [authLoading, user]);
+
+  const parsedCount = cards.length;
+  const canAI = !!user && user.plan && user.plan !== "free" && user.plan !== "guest";
+  const canApkg = !!user && user.plan && user.plan !== "free" && user.plan !== "guest";
+
+  // ✅ Dynamic subtitle based on plan
   const heroSubtitle = canAI
     ? "Parse locally, edit freely, review with AI, export clean apkg for Anki"
     : "Parse locally, edit freely, export clean TSV for Anki. AI review and apkg export is available on paid plans";
+
+  // ✅ One export button: guests/free => TSV, paid => APKG
+  const exportLabel = canApkg ? "Export APKG" : "Export TSV";
+  const exportTitle = canApkg ? "Export Anki .apkg (paid)" : "Export TSV (HTML) for Anki import";
+  const exportBtnClass = ["btn w-full", canApkg ? "btn-accent" : "btn-secondary"].join(" ");
 
   const filteredCards = React.useMemo(() => {
     if (filterMode === "all") return cards;
     return cards.filter((c) => c.card_type === filterMode);
   }, [cards, filterMode]);
 
+  const filteredCount = filteredCards.length;
+
   function clearAll() {
     setRaw("");
     setFilename("");
-    setIngestKind("md");
     setCards([]);
     setStatus(null);
     setEditingIds(new Set());
     setProjectId(null);
+    setAiReviewedIds(new Set());
+    setAiLoadingIds(new Set());
+    setAiLastModeById({});
+    setBatch({ running: false, total: 0, done: 0, errors: 0, mode: null, apply: false });
+  }
+
+  function updateCardLocal(id: string, patch: Partial<Pick<Card, "front" | "back">>) {
+    setCards((prev) => prev.map((c) => (c.id === id ? { ...c, ...patch } : c)));
+  }
+
+  async function persistCardEditIfPossible(id: string, front: string, back: string) {
+    if (!projectId) return;
+    if (!/^\d+$/.test(id)) return;
+    try {
+      await apiFetch(`/cards/${Number(id)}`, { method: "PATCH", body: JSON.stringify({ front, back }) });
+    } catch {
+      // silent
+    }
+  }
+
+  async function deleteCard(id: string) {
+    setCards((prev) => prev.filter((c) => c.id !== id));
+    setEditingIds((prev) => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+    setAiReviewedIds((prev) => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+    setAiLoadingIds((prev) => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+    setAiLastModeById((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+
+    if (projectId && /^\d+$/.test(id)) {
+      try {
+        await apiFetch(`/cards/${Number(id)}`, { method: "DELETE" });
+      } catch {
+        // ignore
+      }
+    }
   }
 
   function toggleEdit(id: string) {
@@ -824,16 +745,60 @@ export default function Workflow() {
     setBusy(true);
 
     try {
-      const parsedLocal =
-        ingestKind === "html"
-          ? parseMarkdownOrPseudoLines(htmlToPseudoMarkdownLines(raw), "html")
-          : parseMarkdownOrPseudoLines(raw, "md");
+      const parsedLocal = parseMarkdown(raw);
 
-      const localCards = parsedLocal.map((c) => ({ ...c, id: uid() }));
-      setCards(localCards);
+      // Guest mode: local-only
+      if (!user) {
+        const localCards = parsedLocal.map((c) => ({ ...c, id: uid() }));
+        setCards(localCards);
+        setEditingIds(new Set());
+        setProjectId(null);
+        setAiReviewedIds(new Set());
+        setAiLoadingIds(new Set());
+        setAiLastModeById({});
+        setStatus(`Parsed ${localCards.length} card${localCards.length === 1 ? "" : "s"} (guest mode).`);
+        return;
+      }
+
+      // Logged-in: create project + persist cards
+      const baseName = (filename || "N2A Project").replace(/\.md$/i, "").trim() || "N2A Project";
+      const pr = await apiFetch<{ project: { id: number } }>("/projects", {
+        method: "POST",
+        body: JSON.stringify({ name: baseName }),
+      });
+
+      const pid = pr.project.id;
+      setProjectId(pid);
+
+      const cr = await apiFetch<{ cards: Array<{ id: number; card_type: CardType; front: string; back: string }> }>(
+        "/cards",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            project_id: pid,
+            cards: parsedLocal.map((c) => ({
+              card_type: c.card_type,
+              front: c.front,
+              back: c.back,
+              raw: undefined,
+            })),
+          }),
+        }
+      );
+
+      const persisted = cr.cards.map((c) => ({
+        id: String(c.id),
+        card_type: c.card_type,
+        front: c.front,
+        back: c.back,
+      }));
+
+      setCards(persisted);
       setEditingIds(new Set());
-      setProjectId(null);
-      setStatus(`Parsed ${localCards.length} card${localCards.length === 1 ? "" : "s"}.`);
+      setAiReviewedIds(new Set());
+      setAiLoadingIds(new Set());
+      setAiLastModeById({});
+      setStatus(`Parsed & saved ${persisted.length} card${persisted.length === 1 ? "" : "s"} to Project #${pid}.`);
     } catch (e: any) {
       setStatus(e?.message ? `Parse failed: ${e.message}` : "Parse failed.");
     } finally {
@@ -841,15 +806,212 @@ export default function Workflow() {
     }
   }
 
+  // ✅ Export as TSV with HTML formatting for Anki (newline -> <br>)
   function exportTSV() {
-    const tsv = cards.map((c) => `${fieldToHtml(c.front)}\t${fieldToHtml(c.back)}`).join("\n");
+    const exportedCards = cards.map((c) => {
+      if (c.card_type !== "mcq") return c;
+
+      const front = formatMcqOptions(c.front, mcqStyle);
+      const back = expandMcqAnswerIfLabelOnly({
+        cardFront: c.front,
+        cardBack: c.back,
+        style: mcqStyle,
+        mode: mcqAnswerMode,
+      });
+
+      return { ...c, front, back };
+    });
+
+    // No header row (prevents importing an extra card).
+    const tsv = exportedCards.map((c) => `${fieldToHtml(c.front)}\t${fieldToHtml(c.back)}`).join("\n");
+
     const blob = new Blob([tsv], { type: "text/tab-separated-values;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = (filename ? filename.replace(/\.(md|markdown|html|htm)$/i, "") : "n2a") + ".tsv";
+    a.download = (filename ? filename.replace(/\.md$/i, "") : "n2a") + ".tsv";
     a.click();
     URL.revokeObjectURL(url);
+  }
+
+  async function exportAPKG() {
+    if (!projectId) {
+      setStatus("No project saved yet. Press Parse while logged in to save cards first.");
+      return;
+    }
+    if (!canApkg) {
+      setStatus("APKG export is available on paid plans.");
+      return;
+    }
+
+    setBusy(true);
+    setStatus("Building APKG deck…");
+    try {
+      await downloadApkg(projectId);
+      setStatus("APKG exported.");
+    } catch (e: any) {
+      setStatus(e?.message ? `APKG export failed: ${e.message}` : "APKG export failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // ✅ One export action (switches by plan)
+  async function exportByPlan() {
+    if (canApkg) {
+      await exportAPKG();
+    } else {
+      exportTSV();
+    }
+  }
+
+  function toAiVariant(v: EnglishVariant): "en-AU" | "en-US" {
+    return v === "us" ? "en-US" : "en-AU";
+  }
+
+  async function aiReviewCard(id: string, apply: boolean, mode: AIMode) {
+    if (!canAI) {
+      setStatus("AI Review is available on paid plans. Please subscribe in Account.");
+      return;
+    }
+    if (!projectId) {
+      setStatus("No project saved yet. Press Parse while logged in to save cards first.");
+      return;
+    }
+    if (!/^\d+$/.test(id)) {
+      setStatus("This card is not saved (guest/local). Parse while logged in to enable AI.");
+      return;
+    }
+
+    // mark reviewed for UI
+    setAiReviewedIds((prev) => {
+      const next = new Set(prev);
+      next.add(id);
+      return next;
+    });
+
+    // remember which mode ran (for diff vs summary behavior)
+    setAiLastModeById((prev) => ({ ...prev, [id]: mode }));
+
+    // per-card spinner
+    setAiLoadingIds((prev) => {
+      const next = new Set(prev);
+      next.add(id);
+      return next;
+    });
+
+    try {
+      const res = await apiFetch<{
+        ok: boolean;
+        result: { changed: boolean; flag?: string | null; feedback?: string | null; front: string; back: string };
+        usage?: { used: number; limit: number };
+      }>("/ai/review", {
+        method: "POST",
+        body: JSON.stringify({
+          project_id: projectId,
+          card_id: Number(id),
+          variant: toAiVariant(englishVariant),
+          apply,
+          mode,
+        }),
+      });
+
+      const changed = !!res.result.changed;
+      const flag = res.result.flag ?? "ok";
+      const feedback = (res.result.feedback ?? "").trim();
+
+      setCards((prev) =>
+        prev.map((c) => {
+          if (c.id !== id) return c;
+
+          const next: Card = {
+            ...c,
+            ai_changed: changed,
+            ai_flag: flag,
+            ai_feedback:
+              feedback ||
+              (changed
+                ? mode === "format"
+                  ? "Formatting updated for clarity."
+                  : "AI suggested improvements (see suggested front/back)."
+                : "Looks good — no changes suggested."),
+            ai_suggest_front: res.result.front ?? null,
+            ai_suggest_back: res.result.back ?? null,
+          };
+
+          // apply is still respected client-side, but backend will also guard it for incorrect
+          if (apply && changed) {
+            next.front = res.result.front;
+            next.back = res.result.back;
+          }
+          return next;
+        })
+      );
+
+      if (apply && changed) {
+        await persistCardEditIfPossible(id, res.result.front, res.result.back);
+      }
+
+      return res;
+    } finally {
+      setAiLoadingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    }
+  }
+
+  async function runWithConcurrency<T>(items: T[], limit: number, worker: (item: T) => Promise<void>) {
+    const queue = [...items];
+    const runners: Promise<void>[] = [];
+    const runOne = async () => {
+      while (queue.length) {
+        const item = queue.shift()!;
+        await worker(item);
+      }
+    };
+    const n = Math.max(1, Math.min(limit, items.length || 1));
+    for (let i = 0; i < n; i++) runners.push(runOne());
+    await Promise.all(runners);
+  }
+
+  async function aiReviewAll(apply: boolean, mode: AIMode) {
+    if (!canAI) {
+      setStatus("AI Review is available on paid plans. Please subscribe in Account.");
+      return;
+    }
+    if (!projectId) {
+      setStatus("No project saved yet. Press Parse while logged in to save cards first.");
+      return;
+    }
+    const saved = cards.filter((c) => /^\d+$/.test(c.id));
+    if (!saved.length) return;
+
+    setBusy(true);
+    setBatch({ running: true, total: saved.length, done: 0, errors: 0, mode, apply });
+
+    const concurrency = 5;
+
+    try {
+      await runWithConcurrency(saved, concurrency, async (c) => {
+        try {
+          await aiReviewCard(c.id, apply, mode);
+          setBatch((b) => ({ ...b, done: b.done + 1 }));
+        } catch {
+          setBatch((b) => ({ ...b, done: b.done + 1, errors: b.errors + 1 }));
+        }
+      });
+
+      setStatus(
+        apply
+          ? `AI complete: applied ${mode} for ${saved.length} card(s).`
+          : `AI complete: reviewed ${mode} for ${saved.length} card(s).`
+      );
+    } finally {
+      setBatch((b) => ({ ...b, running: false }));
+      setBusy(false);
+    }
   }
 
   if (authLoading) {
@@ -860,112 +1022,577 @@ export default function Workflow() {
     );
   }
 
+  const progressPct = batch.total ? Math.round((batch.done / batch.total) * 100) : 0;
+
+  // Full-page overlay ONLY for AI Review ALL
+  if (batch.running) {
+    return (
+      <div className="fixed inset-0 z-[1000] bg-base-100/90 backdrop-blur flex items-center justify-center px-6">
+        <div className="max-w-lg w-full space-y-6 text-center">
+          <div className="flex justify-center">
+            <span className="loading loading-spinner loading-lg text-primary" />
+          </div>
+
+          <div className="space-y-1">
+            <div className="text-lg font-semibold">{batch.apply ? "Applying AI to all cards…" : "Reviewing all cards…"}</div>
+            <div className="text-sm opacity-70">
+              Mode: <span className="font-semibold">{batch.mode}</span> • {batch.done}/{batch.total} ({progressPct}%)
+              {batch.errors ? ` • errors: ${batch.errors}` : ""}
+            </div>
+          </div>
+
+          <progress className="progress progress-primary w-full" value={batch.done} max={batch.total} />
+          <div className="text-xs opacity-60">Please keep this tab open until the process completes.</div>
+        </div>
+      </div>
+    );
+  }
+
+  // ---------- UI ----------
   return (
     <div className="-mx-4 md:-mx-6 lg:-mx-8">
+      {/* HEADER BAND */}
       <section className="px-4 md:px-6 lg:px-8 py-10 md:py-12 bg-base-100">
         <div className="max-w-6xl mx-auto text-center space-y-3">
           <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight">
             Workflow: <span className="text-primary">Upload</span> → Parse → Review → Export
           </h1>
+
+          {/* ✅ Dynamic by plan */}
           <p className="opacity-75 max-w-2xl mx-auto">{heroSubtitle}</p>
-        </div>
-      </section>
 
-      <section className="px-4 md:px-6 lg:px-8 py-10 md:py-12 bg-base-200">
-        <div className="max-w-3xl mx-auto space-y-4">
-          <FileDrop
-            disabled={busy}
-            onLoaded={({ text, filename, kind }) => {
-              setRaw(text);
-              setFilename(filename);
-              setIngestKind(kind);
-              setCards([]);
-              setEditingIds(new Set());
-              setStatus(null);
-            }}
-            onError={(msg) => setStatus(msg)}
-          />
-
-          <div className="text-sm opacity-70">
-            File: <span className="font-semibold">{filename || "None"}</span>{" "}
-            {filename ? <span className="opacity-60">({ingestKind.toUpperCase()})</span> : null}
-          </div>
-
-          <div className="flex flex-col sm:flex-row gap-2">
-            <button className="btn btn-primary" disabled={!raw || busy} onClick={doParse}>
-              Parse
-            </button>
-            <button className="btn btn-outline" disabled={busy} onClick={clearAll}>
-              Clear
-            </button>
-            <button className="btn btn-secondary" disabled={!cards.length || busy} onClick={exportTSV}>
-              Export TSV
-            </button>
-            <a className="btn btn-ghost" href={NOTION_TEMPLATE_URL} target="_blank" rel="noopener noreferrer">
-              N2A Notion Template
-            </a>
-          </div>
-
-          {status && (
-            <div className="alert">
-              <span>{status}</span>
+          <div className="flex justify-center pt-2">
+            <div className={["badge badge-lg", user ? "badge-primary badge-outline" : "badge-ghost"].join(" ")}>
+              {user ? `Logged in (${user.plan})` : "Guest mode"}
             </div>
-          )}
+          </div>
+
+          {user && projectId ? (
+            <div className="flex justify-center">
+              <div className="badge badge-outline">Project #{projectId}</div>
+            </div>
+          ) : null}
         </div>
       </section>
 
+      {/* UPLOAD + PARSE BAND */}
+      <section className="px-4 md:px-6 lg:px-8 py-10 md:py-12 bg-base-200">
+        <div className="max-w-6xl mx-auto">
+          <div className="flex flex-col lg:flex-row gap-6 items-stretch">
+            {/* LEFT: Upload */}
+            <div className="lg:w-[420px] w-full flex">
+              <div className="card bg-base-100 border border-base-300 rounded-2xl w-full h-full">
+                <div className="card-body space-y-4 h-full">
+                  <div>
+                    <h2 className="text-xl font-bold">1) Upload</h2>
+                    {/* ✅ Copy change */}
+                    <p className="text-sm opacity-70">Drop your Notion markdown file</p>
+                  </div>
+
+                  <UploadBox
+                    onFile={(t, n) => {
+                      setRaw(t);
+                      setFilename(n);
+
+                      setCards([]);
+                      setEditingIds(new Set());
+                      setStatus(null);
+                      setProjectId(null);
+                      setAiReviewedIds(new Set());
+                      setAiLoadingIds(new Set());
+                      setAiLastModeById({});
+                      setBatch({ running: false, total: 0, done: 0, errors: 0, mode: null, apply: false });
+                    }}
+                  />
+
+                  <div className="text-xs opacity-70">
+                    File: <span className="font-semibold">{filename || "None"}</span>
+                  </div>
+
+                  <div className="rounded-xl border border-base-300 bg-base-200/40 p-3">
+                    <div className="text-sm font-semibold">Need a template?</div>
+                    {/* ✅ Copy change */}
+                    <div className="text-xs opacity-70 mt-1">
+                      Duplicate the FREE notion template to copy the exact formatting N2A expects
+                    </div>
+
+                    <div className="mt-3 flex flex-col sm:flex-row gap-2">
+                      <a
+                        className="btn btn-sm btn-outline"
+                        href={NOTION_TEMPLATE_URL}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        {/* ✅ Button text change */}
+                        N2A Notion Template
+                      </a>
+                    </div>
+                  </div>
+
+                  {status && (
+                    <div className="alert">
+                      <span>{status}</span>
+                    </div>
+                  )}
+
+                  {!user && (
+                    <div className="alert alert-info">
+                      <span>Guest mode works for parse/edit/export. Login to subscribe + AI.</span>
+                    </div>
+                  )}
+
+                  <div className="flex-1" />
+                </div>
+              </div>
+            </div>
+
+            {/* RIGHT: Parse & Review */}
+            <div className="flex-1 flex">
+              <div className="card bg-base-100 border border-base-300 rounded-2xl w-full h-full">
+                <div className="card-body space-y-5 h-full">
+                  <div className="flex items-start justify-between gap-3 flex-wrap">
+                    <div>
+                      <h2 className="text-xl font-bold">2) Parse & Review</h2>
+                      {/* ✅ Removed per request */}
+                    </div>
+
+                    <div className="flex flex-wrap gap-2">
+                      <div className="rounded-xl border border-base-300 bg-base-200/40 px-3 py-2 text-center">
+                        <div className="text-xs opacity-70">Total</div>
+                        <div className="text-xl font-extrabold text-primary leading-none">{parsedCount}</div>
+                      </div>
+                      <div className="rounded-xl border border-base-300 bg-base-200/40 px-3 py-2 text-center">
+                        <div className="text-xs opacity-70">Shown</div>
+                        <div className="text-xl font-extrabold text-primary leading-none">{filteredCount}</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Controls row */}
+                  <div className="grid md:grid-cols-3 gap-3">
+                    {/* FILTER */}
+                    <div className="rounded-2xl border border-base-300 bg-base-200/40 p-4 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div className="text-sm font-semibold">Filter</div>
+
+                        {/* ✅ Helper icon with hover tooltip */}
+                        <div className="tooltip tooltip-left" data-tip="Filter cards by type: All, Q&A, or MCQ">
+                          <button className="btn btn-ghost btn-xs" type="button" aria-label="Filter help">
+                            i
+                          </button>
+                        </div>
+                      </div>
+
+                      <select
+                        className="select select-bordered w-full"
+                        value={filterMode}
+                        onChange={(e) => setFilterMode(e.target.value as FilterMode)}
+                      >
+                        <option value="all">All</option>
+                        <option value="qa">Q&A only</option>
+                        <option value="mcq">MCQ only</option>
+                      </select>
+                    </div>
+
+                    {/* ✅ MCQ FORMATTING CARD */}
+                    <div className="rounded-2xl border border-base-300 bg-base-200/40 p-4 space-y-3">
+                      <div>
+                        {/* ✅ Title change + removed grey text */}
+                        <div className="text-sm font-semibold">Format MCQ Cards</div>
+                      </div>
+
+                      <div className="space-y-1">
+                        {/* ✅ More intuitive label */}
+                        <div className="text-xs font-semibold opacity-70">Option numbering</div>
+                        <select
+                          className="select select-bordered w-full"
+                          value={mcqStyle}
+                          onChange={(e) => setMcqStyle(e.target.value as McqStyle)}
+                        >
+                          <option value="1)">1)</option>
+                          <option value="1.">1.</option>
+                          <option value="A)">A)</option>
+                          <option value="a)">a)</option>
+                          <option value="A.">A.</option>
+                          <option value="a.">a.</option>
+                        </select>
+                      </div>
+
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between">
+                          {/* ✅ More intuitive label */}
+                          <div className="text-xs font-semibold opacity-70">Answer display</div>
+
+                          {/* ✅ Helper icon with hover tooltip */}
+                          <div
+                            className="tooltip tooltip-left"
+                            data-tip="Controls how MCQ answers are shown: keep original, label only, option text only, or label + option."
+                          >
+                            <button className="btn btn-ghost btn-xs" type="button" aria-label="MCQ answer display help">
+                              i
+                            </button>
+                          </div>
+                        </div>
+
+                        <select
+                          className="select select-bordered w-full"
+                          value={mcqAnswerMode}
+                          onChange={(e) => setMcqAnswerMode(e.target.value as McqAnswerMode)}
+                        >
+                          <option value="default">As Imported</option>
+                          <option value="label_only">Option only</option>
+                          <option value="option_only">Answer only</option>
+                          <option value="label_plus_option">Option and Answer</option>
+                        </select>
+                        {/* ✅ Removed grey helper text line per request */}
+                      </div>
+                    </div>
+
+                    {/* AI ENGLISH */}
+                    <div className="rounded-2xl border border-base-300 bg-base-200/40 p-4 space-y-2">
+                      {/* ✅ More intuitive title + removed grey text */}
+                      <div className="text-sm font-semibold">Spelling consistency</div>
+
+                      <select
+                        className="select select-bordered w-full"
+                        value={englishVariant}
+                        onChange={(e) => setEnglishVariant(e.target.value as EnglishVariant)}
+                        disabled={!canAI}
+                        title={!canAI ? "Requires a paid plan" : "Choose spelling style for AI output"}
+                      >
+                        <option value="uk_au">AUS/UK spelling</option>
+                        <option value="us">US spelling</option>
+                      </select>
+                      {!canAI && <div className="text-xs opacity-70">Subscribe in Account to enable this.</div>}
+                    </div>
+                  </div>
+
+                  {/* Primary buttons (single export button) */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <button className="btn btn-primary w-full" disabled={!raw || busy} onClick={doParse}>
+                      Parse
+                    </button>
+
+                    {/* ✅ Clear label change */}
+                    <button className="btn btn-outline w-full" disabled={busy} onClick={clearAll}>
+                      Clear Cards
+                    </button>
+
+                    <button
+                      className={exportBtnClass}
+                      disabled={!parsedCount || busy || (canApkg && !projectId)}
+                      title={canApkg && !projectId ? "Parse while logged in to create a Project before exporting APKG" : exportTitle}
+                      onClick={() => void exportByPlan()}
+                    >
+                      {exportLabel}
+                    </button>
+                  </div>
+
+                  {/* AI buttons */}
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <button
+                        className="btn btn-ghost w-full"
+                        disabled={!parsedCount || busy || !canAI}
+                        onClick={() => void aiReviewAll(false, "content")}
+                      >
+                        AI Content Review
+                      </button>
+                      <button
+                        className="btn btn-ghost w-full"
+                        disabled={!parsedCount || busy || !canAI}
+                        onClick={() => void aiReviewAll(false, "format")}
+                      >
+                        AI Format Review
+                      </button>
+                      <button
+                        className="btn btn-ghost w-full"
+                        disabled={!parsedCount || busy || !canAI}
+                        onClick={() => void aiReviewAll(false, "both")}
+                      >
+                        AI Content and Format Review
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <button
+                        className="btn btn-outline w-full"
+                        disabled={!parsedCount || busy || !canAI}
+                        onClick={() => void aiReviewAll(true, "content")}
+                      >
+                        Apply Content Changes
+                      </button>
+                      <button
+                        className="btn btn-outline w-full"
+                        disabled={!parsedCount || busy || !canAI}
+                        onClick={() => void aiReviewAll(true, "format")}
+                      >
+                        Apply Format Changes
+                      </button>
+                      <button
+                        className="btn btn-outline w-full"
+                        disabled={!parsedCount || busy || !canAI}
+                        onClick={() => void aiReviewAll(true, "both")}
+                      >
+                        Apply Content and Format Changes
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="flex-1" />
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* CARDS BAND */}
       <section className="px-4 md:px-6 lg:px-8 py-10 md:py-12 bg-base-100">
         <div className="max-w-6xl mx-auto space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="text-lg font-bold">Cards ({filteredCards.length})</div>
-            <select className="select select-bordered" value={filterMode} onChange={(e) => setFilterMode(e.target.value as FilterMode)}>
-              <option value="all">All</option>
-              <option value="qa">Q&A only</option>
-              <option value="mcq">MCQ only</option>
-            </select>
+          <div className="flex items-end justify-between gap-3 flex-wrap">
+            <div>
+              <h2 className="text-2xl font-extrabold tracking-tight">
+                Cards <span className="text-primary">Preview</span>
+              </h2>
+
+              {/* ✅ Updated helper copy */}
+              <p className="opacity-70 text-sm">
+                Press Review to run AI content review, press Format to run AI format review, press Apply to apply AI suggested
+                changes, press Edit to modify card, press Delete to remove card from export
+              </p>
+            </div>
           </div>
 
           {!filteredCards.length ? (
-            <div className="opacity-70">No cards yet.</div>
+            <div className="card bg-base-200/40 border border-base-300 rounded-2xl">
+              <div className="card-body text-center space-y-2">
+                <div className="text-lg font-semibold">No cards to show</div>
+                <div className="text-sm opacity-70">{cards.length ? "Try changing the Filter." : "Upload a Markdown export, then press Parse."}</div>
+              </div>
+            </div>
           ) : (
             <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
               {filteredCards.map((c) => {
                 const isEditing = editingIds.has(c.id);
+                const isPersisted = /^\d+$/.test(c.id) && !!projectId;
+                const isAiLoading = aiLoadingIds.has(c.id);
+
+                const previewFront = c.card_type === "mcq" ? formatMcqOptions(c.front, mcqStyle) : c.front;
+
+                const previewBack =
+                  c.card_type === "mcq"
+                    ? expandMcqAnswerIfLabelOnly({
+                        cardFront: c.front,
+                        cardBack: c.back,
+                        style: mcqStyle,
+                        mode: mcqAnswerMode,
+                      })
+                    : c.back;
+
+                const hasAnyAiField =
+                  c.ai_changed !== undefined ||
+                  c.ai_flag !== undefined ||
+                  c.ai_feedback !== undefined ||
+                  c.ai_suggest_front !== undefined ||
+                  c.ai_suggest_back !== undefined;
+
+                const wasReviewedThisSession = aiReviewedIds.has(c.id);
+                const showAiPanel = hasAnyAiField || wasReviewedThisSession;
+
+                const changed = !!c.ai_changed;
+                const flag = c.ai_flag ?? null;
+                const feedback = (c.ai_feedback ?? "").trim();
+
+                const incorrect = isIncorrectFlag(flag);
+                const lastMode = aiLastModeById[c.id];
+                const formatContext = lastMode === "format" || isFormatFlag(flag);
+
+                const showDiff = changed && !incorrect && !formatContext;
+                const showPlainSuggested = changed && !incorrect && formatContext;
+
+                const disableApplyBecauseIncorrect = incorrect;
+
                 return (
-                  <div key={c.id} className="card bg-base-200/40 border border-base-300 rounded-2xl">
-                    <div className="card-body space-y-2">
-                      <div className="flex items-center justify-between">
+                  <div
+                    key={c.id}
+                    className="card bg-base-200/40 border border-base-300 rounded-2xl transition-all duration-200 hover:-translate-y-1 hover:border-primary/40 hover:bg-base-200"
+                  >
+                    <div className="card-body space-y-3">
+                      <div className="flex items-center justify-between gap-2">
                         <div className="badge badge-outline">{c.card_type.toUpperCase()}</div>
-                        <button className="btn btn-xs btn-ghost" onClick={() => toggleEdit(c.id)}>
-                          {isEditing ? "Close" : "Edit"}
-                        </button>
+
+                        <div className="flex gap-2 flex-wrap justify-end items-center">
+                          {isAiLoading && <span className="loading loading-spinner loading-xs text-primary" />}
+
+                          <button
+                            className="btn btn-xs btn-ghost"
+                            disabled={busy || !canAI || !isPersisted || isAiLoading}
+                            onClick={() => {
+                              setStatus("Running AI review (content)…");
+                              void aiReviewCard(c.id, false, "content")
+                                .then(() => setStatus("AI review complete."))
+                                .catch((e: any) =>
+                                  setStatus(e?.message ? `AI Review failed: ${e.message}` : "AI Review failed.")
+                                );
+                            }}
+                          >
+                            Review
+                          </button>
+
+                          <button
+                            className="btn btn-xs btn-ghost"
+                            disabled={busy || !canAI || !isPersisted || isAiLoading}
+                            onClick={() => {
+                              setStatus("Running AI review (format)…");
+                              void aiReviewCard(c.id, false, "format")
+                                .then(() => setStatus("AI review complete."))
+                                .catch((e: any) =>
+                                  setStatus(e?.message ? `AI Review failed: ${e.message}` : "AI Review failed.")
+                                );
+                            }}
+                          >
+                            Format
+                          </button>
+
+                          <button
+                            className="btn btn-xs btn-ghost"
+                            disabled={busy || !canAI || !isPersisted || isAiLoading || disableApplyBecauseIncorrect}
+                            title={disableApplyBecauseIncorrect ? "Cannot apply: card flagged as incorrect" : "Apply AI suggestions"}
+                            onClick={() => {
+                              setStatus("Applying AI (both)…");
+                              void aiReviewCard(c.id, true, "both")
+                                .then(() => setStatus("AI applied."))
+                                .catch((e: any) =>
+                                  setStatus(e?.message ? `AI Apply failed: ${e.message}` : "AI Apply failed.")
+                                );
+                            }}
+                          >
+                            Apply
+                          </button>
+
+                          <button className="btn btn-xs btn-ghost" disabled={busy || isAiLoading} onClick={() => toggleEdit(c.id)}>
+                            {isEditing ? "Close" : "Edit"}
+                          </button>
+
+                          <button className="btn btn-xs btn-ghost" disabled={busy || isAiLoading} onClick={() => void deleteCard(c.id)}>
+                            Delete
+                          </button>
+                        </div>
                       </div>
 
-                      <div className="text-xs font-semibold opacity-70">Front</div>
-                      <pre className="whitespace-pre-wrap text-sm bg-base-100/40 border border-base-300 rounded-xl p-3">{c.front}</pre>
+                      {showAiPanel && (
+                        <div className="rounded-xl border border-base-300 bg-base-100/40 p-3 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <div className="text-xs font-semibold opacity-70">AI result</div>
 
-                      <div className="text-xs font-semibold opacity-70">Back</div>
-                      <pre className="whitespace-pre-wrap text-sm bg-base-100/40 border border-base-300 rounded-xl p-3">{c.back}</pre>
+                            <div className="flex gap-2 items-center">
+                              {incorrect ? (
+                                <span className="badge badge-sm badge-error">Incorrect</span>
+                              ) : formatContext && changed ? (
+                                <span className="badge badge-sm badge-info">Formatting updated</span>
+                              ) : (
+                                <span className={["badge badge-sm", changed ? "badge-warning" : "badge-success"].join(" ")}>
+                                  {changed ? "Changes suggested" : "Reviewed"}
+                                </span>
+                              )}
+
+                              {flag ? <span className="badge badge-sm badge-outline">{flag}</span> : null}
+                            </div>
+                          </div>
+
+                          {incorrect ? (
+                            <div className="rounded-xl border border-error/30 bg-error/10 p-3">
+                              <div className="font-semibold text-error">This card appears incorrect.</div>
+                              <div className="text-sm opacity-80 mt-1 whitespace-pre-wrap">
+                                {feedback || "AI flagged the original answer as incorrect. No replacement answer is provided."}
+                              </div>
+                              <div className="text-xs opacity-70 mt-2">Tip: edit the card manually, then re-run AI review.</div>
+                            </div>
+                          ) : (
+                            <div className="text-sm whitespace-pre-wrap opacity-80">
+                              {feedback
+                                ? feedback
+                                : wasReviewedThisSession
+                                ? "AI ran successfully, but returned no feedback for this card."
+                                : "AI fields are empty for this card (no stored feedback)."}
+                            </div>
+                          )}
+
+                          {!incorrect && changed && (c.ai_suggest_front || c.ai_suggest_back) && (
+                            <details className="collapse collapse-arrow border border-base-300 bg-base-200/40 rounded-xl">
+                              <summary className="collapse-title text-sm font-semibold">
+                                {showDiff ? "View suggested front/back (changes highlighted)" : "View suggested front/back"}
+                              </summary>
+
+                              <div className="collapse-content space-y-4">
+                                {showPlainSuggested && (
+                                  <div className="text-xs opacity-70">
+                                    Formatting changed for clarity (spacing/bullets/structure). Content meaning is intended to be unchanged.
+                                  </div>
+                                )}
+
+                                <div className="space-y-2">
+                                  <div className="text-xs font-semibold opacity-70">Suggested front</div>
+                                  {showDiff ? (
+                                    <DiffBlock original={c.front} suggested={c.ai_suggest_front ?? ""} />
+                                  ) : (
+                                    <pre className="whitespace-pre-wrap text-sm leading-relaxed bg-base-100/40 border border-base-300 rounded-xl p-3">
+                                      {c.ai_suggest_front ?? ""}
+                                    </pre>
+                                  )}
+                                </div>
+
+                                <div className="space-y-2">
+                                  <div className="text-xs font-semibold opacity-70">Suggested back</div>
+                                  {showDiff ? (
+                                    <DiffBlock original={c.back} suggested={c.ai_suggest_back ?? ""} />
+                                  ) : (
+                                    <pre className="whitespace-pre-wrap text-sm leading-relaxed bg-base-100/40 border border-base-300 rounded-xl p-3">
+                                      {c.ai_suggest_back ?? ""}
+                                    </pre>
+                                  )}
+                                </div>
+                              </div>
+                            </details>
+                          )}
+                        </div>
+                      )}
+
+                      <div className="text-xs font-semibold opacity-70">Front (preview)</div>
+                      <pre className="whitespace-pre-wrap text-sm leading-relaxed bg-base-100/40 border border-base-300 rounded-xl p-3">
+                        {previewFront}
+                      </pre>
+
+                      <div className="text-xs font-semibold opacity-70">Back (preview)</div>
+                      <pre className="whitespace-pre-wrap text-sm leading-relaxed bg-base-100/40 border border-base-300 rounded-xl p-3">
+                        {previewBack}
+                      </pre>
 
                       {isEditing && (
-                        <>
+                        <div className="rounded-2xl border border-base-300 bg-base-100/50 p-3 space-y-3">
+                          <div className="text-xs font-semibold opacity-70">Front (edit)</div>
                           <textarea
-                            className="textarea textarea-bordered w-full min-h-[90px]"
+                            className="textarea textarea-bordered w-full min-h-[96px] text-sm leading-relaxed"
                             value={c.front}
                             onChange={(e) => {
-                              const v = e.target.value;
-                              setCards((prev) => prev.map((x) => (x.id === c.id ? { ...x, front: v } : x)));
+                              const nextFront = e.target.value;
+                              updateCardLocal(c.id, { front: nextFront });
+                              void persistCardEditIfPossible(c.id, nextFront, c.back);
                             }}
                           />
+
+                          <div className="text-xs font-semibold opacity-70">Back (edit)</div>
                           <textarea
-                            className="textarea textarea-bordered w-full min-h-[90px]"
+                            className="textarea textarea-bordered w-full min-h-[96px] text-sm leading-relaxed"
                             value={c.back}
                             onChange={(e) => {
-                              const v = e.target.value;
-                              setCards((prev) => prev.map((x) => (x.id === c.id ? { ...x, back: v } : x)));
+                              const nextBack = e.target.value;
+                              updateCardLocal(c.id, { back: nextBack });
+                              void persistCardEditIfPossible(c.id, c.front, nextBack);
                             }}
                           />
-                        </>
+                        </div>
                       )}
                     </div>
                   </div>
