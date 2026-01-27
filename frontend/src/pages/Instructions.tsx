@@ -33,7 +33,7 @@ const STEPS: Step[] = [
     bullets: [
       "Home: Introduction to N2A",
       "Instructions: Comprehensive overview of N2A",
-      "Workflow: This is where you upload you Notion file, generate cards, preview and edit cards, and export your tSV/apkg file",
+      "Workflow: This is where you upload you Notion file, generate cards, preview and edit cards, and export your tsv/apkg file",
       "Account: Manage your account - upgrade subscription, monitor usage",
     ],
     mediaType: "video",
