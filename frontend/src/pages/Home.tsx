@@ -22,7 +22,7 @@ const STEPS: Step[] = [
   },
   {
     title: "Export",
-    body: "Export file (csv or apkg) ready to import directly into Anki.",
+    body: "Export file (tsv or apkg) ready to import directly into Anki.",
   },
 ];
 

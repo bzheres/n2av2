@@ -33,7 +33,7 @@ const STEPS: Step[] = [
     bullets: [
       "Home: Introduction to N2A",
       "Instructions: Comprehensive overview of N2A",
-      "Workflow: This is where you upload you Notion file, generate cards, preview and edit cards, and export your CSV file",
+      "Workflow: This is where you upload you Notion file, generate cards, preview and edit cards, and export your tSV/apkg file",
       "Account: Manage your account - upgrade subscription, monitor usage",
     ],
     mediaType: "video",
@@ -87,7 +87,7 @@ const STEPS: Step[] = [
     title: "4) Export from Notion and then upload into Workflow",
     subtitle: "Export Markdown from Notion, then upload the .md file into Workflow.",
     bullets: [
-      "In Notion: Share → Export → Markdown & CSV",
+      "In Notion: Share → Export → Markdown & cSV",
       "In N2A Workflow: Drag & drop the exported .md file into the upload box OR select the .md file",
       "Confirm filename shows and Parse becomes available",
     ],
