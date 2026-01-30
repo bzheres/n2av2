@@ -37,6 +37,30 @@ type Card = {
 };
 
 /* ------------------------------------------------------------------ */
+/* Parse Report (post-parse validation)                                */
+/* ------------------------------------------------------------------ */
+type ParseIssueSeverity = "error" | "warn" | "info";
+type ParseIssue = {
+  id: string;
+  severity: ParseIssueSeverity;
+  title: string;
+  detail?: string;
+  cardId?: string; // if known, enables "Jump to card"
+};
+
+type ParseReport = {
+  rawCounts: { questionTags: number; mcqTags: number };
+  parsedCounts: { total: number; qa: number; mcq: number };
+  issues: ParseIssue[];
+};
+
+function severityBadgeClass(s: ParseIssueSeverity) {
+  if (s === "error") return "badge-error";
+  if (s === "warn") return "badge-warning";
+  return "badge-info";
+}
+
+/* ------------------------------------------------------------------ */
 /* Diff helper: line-based "good enough" visual diff for flashcards.   */
 /* - Added lines: primary-tinted highlight                             */
 /* - Removed lines: error-tinted + strikethrough                       */
@@ -559,6 +583,223 @@ async function downloadApkg(projectId: number, overrideFilename?: string) {
   URL.revokeObjectURL(dlUrl);
 }
 
+/* ------------------------------------------------------------------ */
+/* Post-parse checker (does NOT touch parseMarkdown)                   */
+/* ------------------------------------------------------------------ */
+function buildParseReport(raw: string, cards: Card[]): ParseReport {
+  const lines = String(raw || "").split(/\r?\n/);
+
+  const normTag = (l: string) => {
+    const s = l.trim().toLowerCase();
+    if (s.startsWith("question:") || s.startsWith("quesition:") || s.startsWith("quesiton:")) return "question";
+    if (s.startsWith("mcq:") || s.startsWith("mcu:")) return "mcq";
+    return null;
+  };
+
+  const rawCounts = {
+    questionTags: lines.filter((l) => normTag(l) === "question").length,
+    mcqTags: lines.filter((l) => normTag(l) === "mcq").length,
+  };
+
+  const parsedCounts = {
+    total: cards.length,
+    qa: cards.filter((c) => c.card_type === "qa").length,
+    mcq: cards.filter((c) => c.card_type === "mcq").length,
+  };
+
+  const issues: ParseIssue[] = [];
+  const add = (x: Omit<ParseIssue, "id">) => {
+    issues.push({ id: uid(), ...x });
+  };
+
+  // --------------------
+  // Card-level checks
+  // --------------------
+  for (const c of cards) {
+    const front = (c.front || "").trim();
+    const back = (c.back || "").trim();
+
+    if (!front) {
+      add({
+        severity: "error",
+        title: `${c.card_type.toUpperCase()} card has an empty question/front`,
+        detail: "This card will export badly. Check your markdown for a missing stem.",
+        cardId: c.id,
+      });
+    }
+
+    if (c.card_type === "qa") {
+      if (!back) {
+        add({
+          severity: "warn",
+          title: `Q&A appears to be missing an answer`,
+          detail: "Answer lines must be indented (tab / 4 spaces) or start with '- ' or '* '.",
+          cardId: c.id,
+        });
+      }
+    } else {
+      // mcq
+      const fLines = (c.front || "").split("\n").map((s) => s.trim()).filter(Boolean);
+      const optCount = Math.max(0, fLines.length - 1); // stem + options
+      if (optCount === 0) {
+        add({
+          severity: "error",
+          title: "MCQ has no options detected",
+          detail: "Option lines must be indented (tab / 4 spaces) or start with '- ' or '* '.",
+          cardId: c.id,
+        });
+      } else if (optCount === 1) {
+        add({
+          severity: "warn",
+          title: "MCQ has only 1 option detected",
+          detail: "Most MCQs should have 3–5 options. Check indentation/bullets in the markdown.",
+          cardId: c.id,
+        });
+      }
+
+      if (!back) {
+        add({
+          severity: "error",
+          title: "MCQ is missing an answer",
+          detail: "After 'Answer:' the answer line must be indented (tab / 4 spaces).",
+          cardId: c.id,
+        });
+      }
+    }
+  }
+
+  // --------------------
+  // Raw-level "likely skipped/malformed" checks
+  // (simple, helpful, and does NOT alter parsing)
+  // --------------------
+  const isIndentedOrBulleted = (l: string) => /^(\s{4}|\t|-\s|\*\s)/.test(l);
+  const isIndented = (l: string) => /^(\s{4}|\t)/.test(l);
+
+  let i = 0;
+  while (i < lines.length) {
+    const tag = normTag(lines[i]);
+    if (!tag) {
+      i++;
+      continue;
+    }
+
+    const startLine = i;
+    const header = lines[i];
+    i++;
+
+    // gather block lines until next tag
+    const block: string[] = [];
+    while (i < lines.length && !normTag(lines[i])) {
+      block.push(lines[i]);
+      i++;
+    }
+
+    // heuristics
+    if (tag === "question") {
+      const hasAnyNonEmpty = block.some((l) => l.trim().length > 0);
+      const hasAnswerLines = block.some((l) => isIndentedOrBulleted(l));
+      const hasNonEmptyNonIndented = block.some((l) => l.trim().length > 0 && !isIndentedOrBulleted(l));
+
+      // if it looks like user wrote an answer but it wouldn't be captured
+      if (hasAnyNonEmpty && !hasAnswerLines && hasNonEmptyNonIndented) {
+        const example = block.find((l) => l.trim().length > 0) || "";
+        add({
+          severity: "warn",
+          title: "A Question block likely has answer lines in the wrong format (skipped)",
+          detail:
+            `Found text after "${header.trim()}" but it wasn't indented/bulleted.\n` +
+            `Example line: "${example.trim().slice(0, 140)}"\n` +
+            `Fix: indent answer lines with a tab or 4 spaces, or use '- ' bullets.`,
+        });
+      }
+
+      // empty question text
+      const qText = header.split(":", 2)[1]?.trim() || "";
+      if (!qText) {
+        add({
+          severity: "warn",
+          title: "A Question tag has an empty question text",
+          detail: `Line ${startLine + 1}: "${header.trim()}". Add text after "Question:".`,
+        });
+      }
+    }
+
+    if (tag === "mcq") {
+      const hasAnswerMarker = block.some((l) => l.trim().toLowerCase().startsWith("answer:"));
+
+      const opts = block.filter((l) => isIndentedOrBulleted(l) && l.trim().length > 0);
+      const nonEmptyNonOption = block.filter((l) => l.trim().length > 0 && !isIndentedOrBulleted(l));
+
+      if (!opts.length && nonEmptyNonOption.length) {
+        // this often indicates options were not indented/bulleted
+        const example = nonEmptyNonOption.find((l) => !l.trim().toLowerCase().startsWith("answer:")) || nonEmptyNonOption[0] || "";
+        add({
+          severity: "warn",
+          title: "An MCQ block likely has options in the wrong format (skipped)",
+          detail:
+            `Found text after "${header.trim()}" but no indented/bulleted option lines.\n` +
+            `Example line: "${example.trim().slice(0, 140)}"\n` +
+            `Fix: indent options with a tab or 4 spaces, or use '- ' bullets.`,
+        });
+      }
+
+      if (!hasAnswerMarker) {
+        add({
+          severity: "info",
+          title: "An MCQ block has no 'Answer:' line",
+          detail:
+            `After the options, add "Answer:" on its own line, then an indented answer line.\n` +
+            `Example:\nAnswer:\n    B)`,
+        });
+      } else {
+        // ensure there is an indented answer line after Answer:
+        const ansIdx = block.findIndex((l) => l.trim().toLowerCase().startsWith("answer:"));
+        if (ansIdx >= 0) {
+          const after = block.slice(ansIdx + 1);
+          const firstNonEmpty = after.find((l) => l.trim().length > 0);
+          const hasIndentedAnswer = after.some((l) => isIndented(l) && l.trim().length > 0);
+
+          if (firstNonEmpty && !hasIndentedAnswer) {
+            add({
+              severity: "warn",
+              title: "An MCQ block likely has an answer line that isn't indented (skipped)",
+              detail:
+                `After "Answer:" the next non-empty line must be indented (tab / 4 spaces).\n` +
+                `Example line: "${firstNonEmpty.trim().slice(0, 140)}"`,
+            });
+          }
+        }
+      }
+
+      // empty stem
+      const stem = header.split(":", 2)[1]?.trim() || "";
+      if (!stem) {
+        add({
+          severity: "warn",
+          title: "An MCQ tag has an empty stem/question text",
+          detail: `Line ${startLine + 1}: "${header.trim()}". Add text after "MCQ:".`,
+        });
+      }
+    }
+  }
+
+  // Summary mismatch hint (very useful for users)
+  const rawTotal = rawCounts.questionTags + rawCounts.mcqTags;
+  if (rawTotal && parsedCounts.total && Math.abs(rawTotal - parsedCounts.total) >= 1) {
+    add({
+      severity: "info",
+      title: "Tag count vs parsed card count differs",
+      detail: `Detected ${rawTotal} tagged blocks (Question/MCQ) in the markdown, but produced ${parsedCounts.total} cards. Review warnings above for likely formatting issues.`,
+    });
+  }
+
+  // Sort: errors first, then warnings, then info
+  const rank = (s: ParseIssueSeverity) => (s === "error" ? 0 : s === "warn" ? 1 : 2);
+  issues.sort((a, b) => rank(a.severity) - rank(b.severity));
+
+  return { rawCounts, parsedCounts, issues };
+}
+
 export default function Workflow() {
   const [user, setUser] = React.useState<any>(null);
   const [authLoading, setAuthLoading] = React.useState(true);
@@ -606,6 +847,27 @@ export default function Workflow() {
   const [exportModalOpen, setExportModalOpen] = React.useState(false);
   const [exportName, setExportName] = React.useState("");
   const exportInputRef = React.useRef<HTMLInputElement | null>(null);
+
+  // ✅ Parse Report state
+  const [parseReport, setParseReport] = React.useState<ParseReport | null>(null);
+  const [showParseReport, setShowParseReport] = React.useState(true);
+
+  // ✅ Card refs for "Jump to card"
+  const cardRefs = React.useRef<Record<string, HTMLDivElement | null>>({});
+
+  function jumpToCard(cardId: string) {
+    const el = cardRefs.current[cardId];
+    if (!el) {
+      setStatus("Could not locate that card in the current view (try Filter: All).");
+      return;
+    }
+    el.scrollIntoView({ behavior: "smooth", block: "start" });
+    // small highlight pulse
+    el.classList.add("ring", "ring-primary/40", "ring-offset-2", "ring-offset-base-100");
+    window.setTimeout(() => {
+      el.classList.remove("ring", "ring-primary/40", "ring-offset-2", "ring-offset-base-100");
+    }, 900);
+  }
 
   // ---- Auth load ----
   React.useEffect(() => {
@@ -659,6 +921,8 @@ export default function Workflow() {
 
         if (loaded.length) {
           setCards(loaded);
+          // NOTE: raw markdown isn't available on resume, so we can only do card-level checks (best effort)
+          setParseReport(buildParseReport("", loaded));
           setStatus(`Resumed Project #${pid} (${loaded.length} cards).`);
         }
       } catch {
@@ -703,6 +967,9 @@ export default function Workflow() {
     setAiLoadingIds(new Set());
     setAiLastModeById({});
     setBatch({ running: false, total: 0, done: 0, errors: 0, mode: null, apply: false });
+    setParseReport(null);
+    setShowParseReport(true);
+    cardRefs.current = {};
   }
 
   function updateCardLocal(id: string, patch: Partial<Pick<Card, "front" | "back">>) {
@@ -776,6 +1043,8 @@ export default function Workflow() {
         setAiReviewedIds(new Set());
         setAiLoadingIds(new Set());
         setAiLastModeById({});
+        setParseReport(buildParseReport(raw, localCards));
+        setShowParseReport(true);
         setStatus(`Parsed ${localCards.length} card${localCards.length === 1 ? "" : "s"} (guest mode).`);
         return;
       }
@@ -790,21 +1059,18 @@ export default function Workflow() {
       const pid = pr.project.id;
       setProjectId(pid);
 
-      const cr = await apiFetch<{ cards: Array<{ id: number; card_type: CardType; front: string; back: string }> }>(
-        "/cards",
-        {
-          method: "POST",
-          body: JSON.stringify({
-            project_id: pid,
-            cards: parsedLocal.map((c) => ({
-              card_type: c.card_type,
-              front: c.front,
-              back: c.back,
-              raw: undefined,
-            })),
-          }),
-        }
-      );
+      const cr = await apiFetch<{ cards: Array<{ id: number; card_type: CardType; front: string; back: string }> }>("/cards", {
+        method: "POST",
+        body: JSON.stringify({
+          project_id: pid,
+          cards: parsedLocal.map((c) => ({
+            card_type: c.card_type,
+            front: c.front,
+            back: c.back,
+            raw: undefined,
+          })),
+        }),
+      });
 
       const persisted = cr.cards.map((c) => ({
         id: String(c.id),
@@ -818,6 +1084,8 @@ export default function Workflow() {
       setAiReviewedIds(new Set());
       setAiLoadingIds(new Set());
       setAiLastModeById({});
+      setParseReport(buildParseReport(raw, persisted));
+      setShowParseReport(true);
       setStatus(`Parsed & saved ${persisted.length} card${persisted.length === 1 ? "" : "s"} to Project #${pid}.`);
     } catch (e: any) {
       setStatus(e?.message ? `Parse failed: ${e.message}` : "Parse failed.");
@@ -1208,6 +1476,9 @@ export default function Workflow() {
                       setAiLoadingIds(new Set());
                       setAiLastModeById({});
                       setBatch({ running: false, total: 0, done: 0, errors: 0, mode: null, apply: false });
+                      setParseReport(null);
+                      setShowParseReport(true);
+                      cardRefs.current = {};
                     }}
                   />
 
@@ -1383,6 +1654,124 @@ export default function Workflow() {
                     </button>
                   </div>
 
+                  {/* ✅ Parse Report (Option A): summary + issues + jump-to-card */}
+                  {parseReport && showParseReport && (
+                    <div className="rounded-2xl border border-base-300 bg-base-200/40 p-4 space-y-3">
+                      <div className="flex items-start justify-between gap-3 flex-wrap">
+                        <div className="space-y-1">
+                          <div className="text-sm font-semibold">Post-parse check</div>
+                          <div className="text-xs opacity-70">
+                            Detected in file:{" "}
+                            <span className="font-semibold">
+                              {parseReport.rawCounts.questionTags} Question
+                              {parseReport.rawCounts.questionTags === 1 ? "" : "s"}
+                            </span>{" "}
+                            •{" "}
+                            <span className="font-semibold">
+                              {parseReport.rawCounts.mcqTags} MCQ{parseReport.rawCounts.mcqTags === 1 ? "" : "s"}
+                            </span>{" "}
+                            • Parsed:{" "}
+                            <span className="font-semibold">{parseReport.parsedCounts.total}</span> cards (
+                            {parseReport.parsedCounts.qa} Q&A / {parseReport.parsedCounts.mcq} MCQ)
+                          </div>
+                        </div>
+
+                        <div className="flex gap-2 items-center">
+                          <button
+                            className="btn btn-xs btn-ghost"
+                            type="button"
+                            onClick={() => setShowParseReport(false)}
+                            title="Hide this panel"
+                          >
+                            Hide
+                          </button>
+                        </div>
+                      </div>
+
+                      {parseReport.issues.length === 0 ? (
+                        <div className="alert alert-success">
+                          <span>No obvious issues detected. You can still spot-check the first few cards.</span>
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between gap-3 flex-wrap">
+                            <div className="text-xs opacity-70">
+                              Found{" "}
+                              <span className="font-semibold">{parseReport.issues.length}</span> item
+                              {parseReport.issues.length === 1 ? "" : "s"} to review.
+                            </div>
+
+                            <button
+                              className="btn btn-xs btn-outline"
+                              type="button"
+                              onClick={() => {
+                                // Quick “copy report” to clipboard (nice UX; optional but helpful)
+                                const lines = parseReport.issues.map((x) => {
+                                  const tag = x.severity.toUpperCase();
+                                  const where = x.cardId ? ` [card ${x.cardId}]` : "";
+                                  const det = x.detail ? ` — ${x.detail.replace(/\s+/g, " ").trim()}` : "";
+                                  return `${tag}${where}: ${x.title}${det}`;
+                                });
+                                const summary = `N2A Parse Report\nDetected: ${parseReport.rawCounts.questionTags} Question / ${parseReport.rawCounts.mcqTags} MCQ\nParsed: ${parseReport.parsedCounts.total} cards\n\n` +
+                                  lines.join("\n");
+                                navigator.clipboard
+                                  .writeText(summary)
+                                  .then(() => setStatus("Parse report copied to clipboard."))
+                                  .catch(() => setStatus("Could not copy to clipboard (browser blocked)."));
+                              }}
+                            >
+                              Copy report
+                            </button>
+                          </div>
+
+                          <div className="space-y-2 max-h-[320px] overflow-auto pr-1">
+                            {parseReport.issues.map((iss) => (
+                              <div key={iss.id} className="rounded-xl border border-base-300 bg-base-100/40 p-3">
+                                <div className="flex items-start justify-between gap-3">
+                                  <div className="space-y-1">
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                      <span className={["badge badge-sm", severityBadgeClass(iss.severity)].join(" ")}>
+                                        {iss.severity.toUpperCase()}
+                                      </span>
+                                      <div className="text-sm font-semibold">{iss.title}</div>
+                                      {iss.cardId ? (
+                                        <span className="badge badge-sm badge-outline">card {iss.cardId}</span>
+                                      ) : null}
+                                    </div>
+                                    {iss.detail ? (
+                                      <div className="text-xs opacity-80 whitespace-pre-wrap">{iss.detail}</div>
+                                    ) : null}
+                                  </div>
+
+                                  {iss.cardId ? (
+                                    <button
+                                      className="btn btn-xs btn-primary"
+                                      type="button"
+                                      onClick={() => jumpToCard(iss.cardId!)}
+                                      title="Scroll to this card"
+                                    >
+                                      Jump
+                                    </button>
+                                  ) : null}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+
+                          <div className="text-[11px] opacity-60">
+                            Tip: if “Jump” can’t find the card, set Filter to <span className="font-semibold">All</span> and try again.
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {!parseReport && (
+                    <div className="text-xs opacity-60">
+                      After parsing, N2A will run a quick check and list any cards that look incomplete or likely skipped.
+                    </div>
+                  )}
+
                   {/* AI buttons */}
                   <div className="space-y-3">
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -1435,6 +1824,14 @@ export default function Workflow() {
                   </div>
 
                   <div className="flex-1" />
+
+                  {!showParseReport && parseReport && (
+                    <div className="pt-1">
+                      <button className="btn btn-xs btn-outline" type="button" onClick={() => setShowParseReport(true)}>
+                        Show post-parse check
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -1512,6 +1909,9 @@ export default function Workflow() {
                 return (
                   <div
                     key={c.id}
+                    ref={(el) => {
+                      cardRefs.current[c.id] = el;
+                    }}
                     className="card bg-base-200/40 border border-base-300 rounded-2xl transition-all duration-200 hover:-translate-y-1 hover:border-primary/40 hover:bg-base-200"
                   >
                     <div className="card-body space-y-3">
