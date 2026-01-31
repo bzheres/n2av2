@@ -3,7 +3,6 @@ import React from "react";
 import { Link } from "react-router-dom";
 import Seo from "../components/Seo";
 
-
 type MediaType = "image" | "video";
 
 type Step = {
@@ -24,125 +23,170 @@ type Step = {
 };
 
 // ✅ Put your Notion template URL here (external link)
-const NOTION_TEMPLATE_URL = "https://n2a-template.notion.site/N2A-Notion-Template-Read-Only-2eb54986383480a2b7b9c652a6893078";
+const NOTION_TEMPLATE_URL =
+  "https://n2a-template.notion.site/N2A-Notion-Template-Read-Only-2eb54986383480a2b7b9c652a6893078";
 
+/**
+ * NOTE ABOUT TABS:
+ * Your current parser supports: 4 spaces indentation OR "- " OR "* "
+ * It does NOT reliably support literal Tab characters from Notion exports.
+ */
 const STEPS: Step[] = [
   {
-    title: "1) Quick tour",
-    subtitle: "N2A",
+    title: "1) Quick overview",
+    subtitle: "What N2A does (in 60 seconds)",
     bullets: [
-      "Home: Introduction to N2A",
-      "Instructions: Comprehensive overview of N2A",
-      "Workflow: This is where you upload you Notion file, generate cards, preview and edit cards, and export your tsv/apkg file",
-      "Account: Manage your account - upgrade subscription, monitor usage",
+      "Goal: convert your Notion notes into Anki-ready flashcards in minutes.",
+      "Workflow page = Upload → Parse → Review → Export.",
+      "Guest mode: you can parse/edit/export without an account.",
+      "Free account: saves your latest project so you can come back later.",
+      "Paid plans: unlock AI review + APKG export (Anki deck file).",
     ],
     mediaType: "video",
-    mediaHint: "Placeholder: 20–40s tour clip: Home → Instructions → Workflow → Account",
-    // ✅ Use /public-relative URL (NOT the Windows filesystem path)
+    mediaHint: "Record: site tour (Home → Instructions → Workflow → Account).",
     mediaSrc: "/videos/n2a_step_video.mp4",
-    // mediaPoster: "/images/step1_poster.jpg",
     cta: { label: "Open Workflow", to: "/workflow" },
   },
   {
-    title: "2) Account & plans",
-    subtitle: "Free tier covers the entire core flow! Optionally, can upgrade to integrate AI review of your cards",
+    title: "2) Start with the template (recommended)",
+    subtitle: "Fastest way to avoid formatting mistakes",
     bullets: [
-      "Guests can utilise ALL the key features without an account",
-      "Free Users with an account can utilise ALL the key features + cards can be saved for when you log back in",
-      "Paid plans: Users can choose to upgrade to a paid plan. This unlocks the option to have your cards AI reviewed to ensure content is correct and to improve formatting",
-      "Importantly, the AI WILL NOT make up answers or change meaning to your cards",
-      "From the Account page, you can track how many cards you have generated as well as track how many AI reviews you have left (if applicable)",
+      "Duplicate the FREE N2A Notion template and write your notes inside it.",
+      "The template uses formatting that N2A expects (especially for MCQ options and answers).",
+      "If you don’t use the template, you can still use N2A — just follow the formatting rules in Step 3.",
+      "Tip: keep one study topic per page to keep exports clean.",
     ],
     mediaType: "video",
-    mediaHint: "Placeholder: 20–40s tour clip: Home → Instructions → Workflow → Account",
-    // ✅ Use /public-relative URL (NOT the Windows filesystem path)
+    mediaHint: "Record: open the Notion template → duplicate → show where to type notes.",
     mediaSrc: "/videos/n2a_step_video.mp4",
-    // mediaPoster: "/images/step1_poster.jpg",
+    cta: { label: "Open N2A Notion Template", to: NOTION_TEMPLATE_URL },
+  },
+  {
+    title: "3) Formatting rules (this is the important step)",
+    subtitle: "How to structure Q&A + MCQ blocks so N2A parses them correctly",
+    bullets: [
+      "N2A supports two card types: Q&A cards and MCQ cards.",
+      "Everything starts with a tag line: either 'Question:' or 'MCQ:'",
+      "Answers and options must be either: (a) indented by 4 spaces, OR (b) bulleted using '- ' or '* '",
+      "Avoid putting multiple questions inside one block. Keep one Question/MCQ per block.",
+      "If parsing misses cards, the post-parse check will tell you what to fix.",
+    ],
+    mediaType: "video",
+    mediaHint: "Record: show examples in Notion of correct vs incorrect formatting.",
+    mediaSrc: "/videos/n2a_step_video.mp4",
+    cta: { label: "Open Workflow", to: "/workflow" },
+  },
+  {
+    title: "4) Q&A card examples",
+    subtitle: "Exact formats that N2A can parse",
+    bullets: [
+      "Q&A cards must start with: Question: <your question>",
+      "Answer lines must be indented by 4 spaces OR bulleted with '- ' or '* '",
+      "Good example:",
+      "Question: What is the K-edge?",
+      "    The binding energy of an inner-shell electron (K-shell).",
+      "Common mistake: writing the answer without indentation or bulleting (N2A may skip it).",
+    ],
+    mediaType: "video",
+    mediaHint: "Record: show a Q&A block in Notion, then show the exported .md briefly.",
+    mediaSrc: "/videos/n2a_step_video.mp4",
+    cta: { label: "Open Workflow", to: "/workflow" },
+  },
+  {
+    title: "5) MCQ card examples",
+    subtitle: "Options + Answer formatting (most common errors happen here)",
+    bullets: [
+      "MCQ cards must start with: MCQ: <your question stem>",
+      "Options must be one-per-line and indented by 4 spaces OR bulleted with '- ' or '* '",
+      "Then include an 'Answer:' line (exactly) and the answer on the next line indented by 4 spaces.",
+      "Good example:",
+      "MCQ: Which interaction dominates at 30 keV?",
+      "    A) Photoelectric effect",
+      "    B) Compton scatter",
+      "    C) Pair production",
+      "Answer:",
+      "    A)",
+      "Tip: the answer can be just the label (A), (A), (A), 'A)', or '1)' etc — N2A can format output later.",
+    ],
+    mediaType: "video",
+    mediaHint: "Record: show MCQ block. Emphasize 4 spaces for options/answer.",
+    mediaSrc: "/videos/n2a_step_video.mp4",
+    cta: { label: "Open Workflow", to: "/workflow" },
+  },
+  {
+    title: "6) Export from Notion (the correct export settings)",
+    subtitle: "Export Markdown, then upload the .md file into Workflow",
+    bullets: [
+      "In Notion: Share → Export",
+      "Choose: 'Markdown & CSV' (this produces a .md file)",
+      "Download the export zip, then locate the .md file inside it",
+      "Upload that .md file into N2A Workflow (drag & drop or select file).",
+      "Tip: if your export contains many files, upload the main .md file for your page (usually named after the page).",
+    ],
+    mediaType: "video",
+    mediaHint: "Record: Notion export click path → show the downloaded zip → show the .md inside.",
+    mediaSrc: "/videos/n2a_step_video.mp4",
+    cta: { label: "Open Workflow", to: "/workflow" },
+  },
+  {
+    title: "7) Parse + fix issues (post-parse check panel)",
+    subtitle: "How to interpret the panel and fix common formatting problems",
+    bullets: [
+      "After you press Parse, N2A generates card previews below.",
+      "N2A also runs a post-parse check: it warns you about cards likely missing answers, options, or MCQ answers.",
+      "Errors usually mean: that card will export badly (fix it before exporting).",
+      "Warnings usually mean: something is likely formatted wrong (often indentation/bullets).",
+      "Use the 'Jump' button to scroll to the affected card and fix it quickly.",
+      "Important: the panel tells you what to fix in Notion formatting terms (use 4 spaces / '- ' / '* ').",
+    ],
+    mediaType: "video",
+    mediaHint: "Record: parse a file with a few mistakes → show panel → click Jump → fix in Edit → re-check.",
+    mediaSrc: "/videos/n2a_step_video.mp4",
+    cta: { label: "Open Workflow", to: "/workflow" },
+  },
+  {
+    title: "8) Review cards (preview, edit, delete)",
+    subtitle: "Clean up cards before export so your Anki import looks great",
+    bullets: [
+      "Each card shows a Front and Back preview (this is what will export).",
+      "Use Filter (All / Q&A / MCQ) to focus your review.",
+      "Use Edit to modify Front/Back text directly.",
+      "Use Delete to remove a card from export.",
+      "Tip: If one card looks wrong, it’s usually a formatting issue in that original block (fix in Notion for future exports).",
+    ],
+    mediaType: "video",
+    mediaHint: "Record: show preview → Edit a card → Delete a card → show counts update.",
+    mediaSrc: "/videos/n2a_step_video.mp4",
+    cta: { label: "Open Workflow", to: "/workflow" },
+  },
+  {
+    title: "9) AI review (paid plans only)",
+    subtitle: "Content review vs format review vs both",
+    bullets: [
+      "AI Content Review: checks clarity and consistency; may flag cards that appear incorrect.",
+      "AI Format Review: improves readability/structure without changing meaning.",
+      "AI Both: combines content + formatting suggestions.",
+      "If a card is flagged incorrect, N2A will not auto-apply a made-up answer — you should edit manually.",
+      "Always double-check AI suggestions. AI helps, but it’s not perfect.",
+    ],
+    mediaType: "video",
+    mediaHint: "Record: run AI review on 1–2 cards → show feedback panel → show incorrect flag behavior.",
+    mediaSrc: "/videos/n2a_step_video.mp4",
     cta: { label: "Account", to: "/account" },
   },
   {
-    title: "3) Format your Notion page so N2A can parse it",
-    subtitle: "It is important to follow these simple instructions to ensure N2A works correctly",
+    title: "10) Export to Anki (TSV or APKG) + import tips",
+    subtitle: "How to get your cards into Anki correctly",
     bullets: [
-      "Currently, N2A only supports simple back and front cards",
-      "To make a Notion note a Q&A card, the line must begin with 'Question:' with the question written after",
-      "The Answer to the Question must be indented beneath the Question OR bulleted (i.e. 4 spaces, '-', '*')",
-      "To make a Notion note a MCQ card, the line must begin with 'MCQ:' with the question stem written after",
-      "The MCQ options must be indented OR bulleted underneath the question stem, with one option per line",
-      "The MCQ Answer must be written as 'Answer:' with the answer written after OR on the next indented line",
-      "Avoid mixing multiple prompts in the same card block",
-      "The video above shows real examples of how to structure your Notion notes",
+      "Guest + Free users: Export TSV (HTML). This imports cleanly into Anki using tab-separated fields.",
+      "Paid users: Export APKG. This downloads a ready-to-import Anki deck file.",
+      "TSV import (Anki): File → Import → select .tsv → choose the correct deck and note type → map Front/Back fields.",
+      "If your cards look like one long paragraph in Anki: check that you imported TSV and your fields are separated correctly.",
+      "Tip: Start by importing a small test file first (10–20 cards), then import your full set.",
     ],
     mediaType: "video",
-    mediaHint: "Placeholder: 20–40s tour clip: Home → Instructions → Workflow → Account",
-    // ✅ Use /public-relative URL (NOT the Windows filesystem path)
+    mediaHint: "Record: export TSV/APKG → show Anki import screen → confirm Front/Back mapping.",
     mediaSrc: "/videos/n2a_step_video.mp4",
-    // mediaPoster: "/images/step1_poster.jpg",
-    cta: {
-      label: "N2A Notion template",
-      to: NOTION_TEMPLATE_URL,
-    },
-  },
-  {
-    title: "4) Export from Notion and then upload into Workflow",
-    subtitle: "Export Markdown from Notion, then upload the .md file into Workflow.",
-    bullets: [
-      "In Notion: Share → Export → Markdown & cSV",
-      "In N2A Workflow: Drag & drop the exported .md file into the upload box OR select the .md file",
-      "Confirm filename shows and Parse becomes available",
-    ],
-    mediaType: "video",
-    mediaHint: "Placeholder: 20–40s tour clip: Home → Instructions → Workflow → Account",
-    // ✅ Use /public-relative URL (NOT the Windows filesystem path)
-    mediaSrc: "/videos/n2a_step_video.mp4",
-    // mediaPoster: "/images/step1_poster.jpg",
-    cta: { label: "Open Workflow", to: "/workflow" },
-  },
-  {
-    title: "5) Parse: generate your card previews",
-    subtitle: "Parsing turns your Markdown blocks into Q&A and MCQ cards",
-    bullets: [
-      "Click Parse to generate cards",
-      "Check Total vs Shown counts",
-      "You can use the Filter to show only Q&A cards, only MCQ cards, or both by selecting 'All'",
-    ],
-    mediaType: "video",
-    mediaHint: "Placeholder: 20–40s tour clip: Home → Instructions → Workflow → Account",
-    // ✅ Use /public-relative URL (NOT the Windows filesystem path)
-    mediaSrc: "/videos/n2a_step_video.mp4",
-    // mediaPoster: "/images/step1_poster.jpg",
-    cta: { label: "Open Workflow", to: "/workflow" },
-  },
-  {
-    title: "6) Review your cards: preview, edit, delete",
-    subtitle: "Clean up before export so your Anki import is smooth",
-    bullets: [
-      "Each card shows a preview of how the Front and Back will look in Anki",
-      "Use Edit to change the raw front and back text",
-      "Use Delete to remove a card from export",
-    ],
-    mediaType: "video",
-    mediaHint: "Placeholder: 20–40s tour clip: Home → Instructions → Workflow → Account",
-    // ✅ Use /public-relative URL (NOT the Windows filesystem path)
-    mediaSrc: "/videos/n2a_step_video.mp4",
-    // mediaPoster: "/images/step1_poster.jpg",
-    cta: { label: "Open Workflow", to: "/workflow" },
-  },
-  {
-    title: "7) AI Review: Overview",
-    subtitle: "Paid users can ask AI to review content, formatting, or both",
-    bullets: [
-      "AI Content Review: Checks clarity, fixes spelling (US or Aus/UK), suggests small improvements, and flags cards that may be incorrect",
-      "AI Format Review: Improves readability only without changing meaning (in md structure)",
-      "AI Review Both: Includes BOTH content review and formatting suggestions",
-      "AI Review does not create new facts and it should not add new information to your cards",
-      "AI is NOT perfect. Any suggested changes should be double checked",
-    ],
-    mediaType: "video",
-    mediaHint: "Placeholder: 20–40s tour clip: Home → Instructions → Workflow → Account",
-    // ✅ Use /public-relative URL (NOT the Windows filesystem path)
-    mediaSrc: "/videos/n2a_step_video.mp4",
-    // mediaPoster: "/images/step1_poster.jpg",
     cta: { label: "Open Workflow", to: "/workflow" },
   },
 ];
@@ -183,8 +227,6 @@ export default function Instructions() {
       />
 
       <div className="-mx-4 md:-mx-6 lg:-mx-8">
-
-
         {/* HEADER BAND */}
         <section className="px-4 md:px-6 lg:px-8 py-10 md:py-12 bg-base-100">
           <div className="max-w-6xl mx-auto text-center space-y-3">
@@ -192,6 +234,10 @@ export default function Instructions() {
               Instructions: From <span className="text-primary">Notion</span> notes to{" "}
               <span className="text-primary">Anki</span> flashcards
             </h1>
+
+            <p className="opacity-75 max-w-2xl mx-auto">
+              Follow the steps on the left. The formatting rules (Steps 3–5) are the key to reliable parsing.
+            </p>
 
             <div className="flex flex-col sm:flex-row justify-center gap-3 pt-2">
               <Link to="/workflow" className="btn btn-primary">
@@ -240,7 +286,9 @@ export default function Instructions() {
                         ].join(" ")}
                       >
                         <div className="flex items-start gap-2">
-                          <div className={["badge", active ? "badge-primary" : "badge-ghost"].join(" ")}>{i + 1}</div>
+                          <div className={["badge", active ? "badge-primary" : "badge-ghost"].join(" ")}>
+                            {i + 1}
+                          </div>
                           <div className="flex-1">
                             <div className="font-semibold leading-snug">{s.title.replace(/^\d+\)\s*/, "")}</div>
                             {s.subtitle && <div className="text-xs opacity-70 mt-0.5 line-clamp-2">{s.subtitle}</div>}
@@ -278,6 +326,11 @@ export default function Instructions() {
                       • Tip: click the media to <span className="font-semibold">zoom</span>.
                     </>
                   ) : null}
+                </div>
+
+                <div className="rounded-xl border border-base-300 bg-base-200/40 p-3 text-xs opacity-75">
+                  <div className="font-semibold mb-1">Most common reason parsing fails</div>
+                  <div>Answer/option lines are not indented with <span className="font-semibold">4 spaces</span> and are not bulleted.</div>
                 </div>
               </div>
             </aside>
@@ -372,7 +425,7 @@ export default function Instructions() {
                   {step.bullets.map((b) => (
                     <div key={b} className="flex gap-3 items-start rounded-xl border border-base-300 bg-base-200/30 p-3">
                       <div className="mt-1 h-2 w-2 rounded-full bg-primary" />
-                      <div className="opacity-85">{b}</div>
+                      <div className="opacity-85 whitespace-pre-wrap">{b}</div>
                     </div>
                   ))}
                 </div>
@@ -397,12 +450,7 @@ export default function Instructions() {
 
                   {step.cta &&
                     (step.cta.to.startsWith("http") ? (
-                      <a
-                        href={step.cta.to}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="btn"
-                      >
+                      <a href={step.cta.to} target="_blank" rel="noopener noreferrer" className="btn">
                         {step.cta.label}
                       </a>
                     ) : (
