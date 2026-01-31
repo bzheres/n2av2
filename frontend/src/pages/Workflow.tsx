@@ -60,6 +60,14 @@ function severityBadgeClass(s: ParseIssueSeverity) {
   return "badge-info";
 }
 
+function displayCardId(id: string) {
+  const s = String(id ?? "");
+  if (!s) return "";
+  if (/^\d+$/.test(s)) return s; // persisted numeric IDs: show full
+  if (s.length <= 10) return s;
+  return `${s.slice(0, 4)}…${s.slice(-4)}`; // local IDs: shorten
+}
+
 /* ------------------------------------------------------------------ */
 /* Diff helper: line-based "good enough" visual diff for flashcards.   */
 /* - Added lines: primary-tinted highlight                             */
@@ -633,7 +641,7 @@ function buildParseReport(raw: string, cards: Card[]): ParseReport {
         add({
           severity: "warn",
           title: `Q&A appears to be missing an answer`,
-          detail: "Answer lines must be indented (tab / 4 spaces) or start with '- ' or '* '.",
+          detail: "Answer lines must be indented (4 spaces) or start with '- ' or '* '.",
           cardId: c.id,
         });
       }
@@ -645,7 +653,7 @@ function buildParseReport(raw: string, cards: Card[]): ParseReport {
         add({
           severity: "error",
           title: "MCQ has no options detected",
-          detail: "Option lines must be indented (tab / 4 spaces) or start with '- ' or '* '.",
+          detail: "Option lines must be indented (4 spaces) or start with '- ' or '* '.",
           cardId: c.id,
         });
       } else if (optCount === 1) {
@@ -661,7 +669,7 @@ function buildParseReport(raw: string, cards: Card[]): ParseReport {
         add({
           severity: "error",
           title: "MCQ is missing an answer",
-          detail: "After 'Answer:' the answer line must be indented (tab / 4 spaces).",
+          detail: "After 'Answer:' the answer line must be indented (4 spaces).",
           cardId: c.id,
         });
       }
@@ -709,7 +717,7 @@ function buildParseReport(raw: string, cards: Card[]): ParseReport {
           detail:
             `Found text after "${header.trim()}" but it wasn't indented/bulleted.\n` +
             `Example line: "${example.trim().slice(0, 140)}"\n` +
-            `Fix: indent answer lines with a tab or 4 spaces, or use '- ' bullets.`,
+            `Fix: indent answer lines with 4 spaces, or use '- ' bullets.`,
         });
       }
 
@@ -732,14 +740,17 @@ function buildParseReport(raw: string, cards: Card[]): ParseReport {
 
       if (!opts.length && nonEmptyNonOption.length) {
         // this often indicates options were not indented/bulleted
-        const example = nonEmptyNonOption.find((l) => !l.trim().toLowerCase().startsWith("answer:")) || nonEmptyNonOption[0] || "";
+        const example =
+          nonEmptyNonOption.find((l) => !l.trim().toLowerCase().startsWith("answer:")) ||
+          nonEmptyNonOption[0] ||
+          "";
         add({
           severity: "warn",
           title: "An MCQ block likely has options in the wrong format (skipped)",
           detail:
             `Found text after "${header.trim()}" but no indented/bulleted option lines.\n` +
             `Example line: "${example.trim().slice(0, 140)}"\n` +
-            `Fix: indent options with a tab or 4 spaces, or use '- ' bullets.`,
+            `Fix: indent options with 4 spaces, or use '- ' bullets.`,
         });
       }
 
@@ -764,7 +775,7 @@ function buildParseReport(raw: string, cards: Card[]): ParseReport {
               severity: "warn",
               title: "An MCQ block likely has an answer line that isn't indented (skipped)",
               detail:
-                `After "Answer:" the next non-empty line must be indented (tab / 4 spaces).\n` +
+                `After "Answer:" the next non-empty line must be indented (4 spaces).\n` +
                 `Example line: "${firstNonEmpty.trim().slice(0, 140)}"`,
             });
           }
@@ -1059,18 +1070,21 @@ export default function Workflow() {
       const pid = pr.project.id;
       setProjectId(pid);
 
-      const cr = await apiFetch<{ cards: Array<{ id: number; card_type: CardType; front: string; back: string }> }>("/cards", {
-        method: "POST",
-        body: JSON.stringify({
-          project_id: pid,
-          cards: parsedLocal.map((c) => ({
-            card_type: c.card_type,
-            front: c.front,
-            back: c.back,
-            raw: undefined,
-          })),
-        }),
-      });
+      const cr = await apiFetch<{ cards: Array<{ id: number; card_type: CardType; front: string; back: string }> }>(
+        "/cards",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            project_id: pid,
+            cards: parsedLocal.map((c) => ({
+              card_type: c.card_type,
+              front: c.front,
+              back: c.back,
+              raw: undefined,
+            })),
+          }),
+        }
+      );
 
       const persisted = cr.cards.map((c) => ({
         id: String(c.id),
@@ -1413,10 +1427,7 @@ export default function Workflow() {
                   <button className="btn btn-ghost" onClick={closeExportModal}>
                     Cancel
                   </button>
-                  <button
-                    className={["btn", canApkg ? "btn-accent" : "btn-secondary"].join(" ")}
-                    onClick={() => void confirmExport()}
-                  >
+                  <button className={["btn", canApkg ? "btn-accent" : "btn-secondary"].join(" ")} onClick={() => void confirmExport()}>
                     Download
                   </button>
                 </div>
@@ -1493,12 +1504,7 @@ export default function Workflow() {
                     </div>
 
                     <div className="mt-3 flex flex-col sm:flex-row gap-2">
-                      <a
-                        className="btn btn-sm btn-outline"
-                        href={NOTION_TEMPLATE_URL}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
+                      <a className="btn btn-sm btn-outline" href={NOTION_TEMPLATE_URL} target="_blank" rel="noopener noreferrer">
                         N2A Notion Template
                       </a>
                     </div>
@@ -1654,7 +1660,34 @@ export default function Workflow() {
                     </button>
                   </div>
 
-                  {/* ✅ Parse Report (Option A): summary + issues + jump-to-card */}
+                  {/* AI buttons */}
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <button className="btn btn-ghost w-full" disabled={!parsedCount || busy || !canAI} onClick={() => void aiReviewAll(false, "content")}>
+                        AI Content Review
+                      </button>
+                      <button className="btn btn-ghost w-full" disabled={!parsedCount || busy || !canAI} onClick={() => void aiReviewAll(false, "format")}>
+                        AI Format Review
+                      </button>
+                      <button className="btn btn-ghost w-full" disabled={!parsedCount || busy || !canAI} onClick={() => void aiReviewAll(false, "both")}>
+                        AI Content and Format Review
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <button className="btn btn-outline w-full" disabled={!parsedCount || busy || !canAI} onClick={() => void aiReviewAll(true, "content")}>
+                        Apply Content Changes
+                      </button>
+                      <button className="btn btn-outline w-full" disabled={!parsedCount || busy || !canAI} onClick={() => void aiReviewAll(true, "format")}>
+                        Apply Format Changes
+                      </button>
+                      <button className="btn btn-outline w-full" disabled={!parsedCount || busy || !canAI} onClick={() => void aiReviewAll(true, "both")}>
+                        Apply Content and Format Changes
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* ✅ Post-parse check moved BELOW AI buttons */}
                   {parseReport && showParseReport && (
                     <div className="rounded-2xl border border-base-300 bg-base-200/40 p-4 space-y-3">
                       <div className="flex items-start justify-between gap-3 flex-wrap">
@@ -1663,26 +1696,19 @@ export default function Workflow() {
                           <div className="text-xs opacity-70">
                             Detected in file:{" "}
                             <span className="font-semibold">
-                              {parseReport.rawCounts.questionTags} Question
-                              {parseReport.rawCounts.questionTags === 1 ? "" : "s"}
+                              {parseReport.rawCounts.questionTags} Question{parseReport.rawCounts.questionTags === 1 ? "" : "s"}
                             </span>{" "}
                             •{" "}
                             <span className="font-semibold">
                               {parseReport.rawCounts.mcqTags} MCQ{parseReport.rawCounts.mcqTags === 1 ? "" : "s"}
                             </span>{" "}
-                            • Parsed:{" "}
-                            <span className="font-semibold">{parseReport.parsedCounts.total}</span> cards (
+                            • Parsed: <span className="font-semibold">{parseReport.parsedCounts.total}</span> cards (
                             {parseReport.parsedCounts.qa} Q&A / {parseReport.parsedCounts.mcq} MCQ)
                           </div>
                         </div>
 
                         <div className="flex gap-2 items-center">
-                          <button
-                            className="btn btn-xs btn-ghost"
-                            type="button"
-                            onClick={() => setShowParseReport(false)}
-                            title="Hide this panel"
-                          >
+                          <button className="btn btn-xs btn-ghost" type="button" onClick={() => setShowParseReport(false)} title="Hide this panel">
                             Hide
                           </button>
                         </div>
@@ -1690,14 +1716,13 @@ export default function Workflow() {
 
                       {parseReport.issues.length === 0 ? (
                         <div className="alert alert-success">
-                          <span>No obvious issues detected. You can still spot-check the first few cards.</span>
+                          <span>No obvious issues detected.</span>
                         </div>
                       ) : (
                         <div className="space-y-2">
                           <div className="flex items-center justify-between gap-3 flex-wrap">
                             <div className="text-xs opacity-70">
-                              Found{" "}
-                              <span className="font-semibold">{parseReport.issues.length}</span> item
+                              Found <span className="font-semibold">{parseReport.issues.length}</span> item
                               {parseReport.issues.length === 1 ? "" : "s"} to review.
                             </div>
 
@@ -1712,7 +1737,8 @@ export default function Workflow() {
                                   const det = x.detail ? ` — ${x.detail.replace(/\s+/g, " ").trim()}` : "";
                                   return `${tag}${where}: ${x.title}${det}`;
                                 });
-                                const summary = `N2A Parse Report\nDetected: ${parseReport.rawCounts.questionTags} Question / ${parseReport.rawCounts.mcqTags} MCQ\nParsed: ${parseReport.parsedCounts.total} cards\n\n` +
+                                const summary =
+                                  `N2A Parse Report\nDetected: ${parseReport.rawCounts.questionTags} Question / ${parseReport.rawCounts.mcqTags} MCQ\nParsed: ${parseReport.parsedCounts.total} cards\n\n` +
                                   lines.join("\n");
                                 navigator.clipboard
                                   .writeText(summary)
@@ -1734,22 +1760,18 @@ export default function Workflow() {
                                         {iss.severity.toUpperCase()}
                                       </span>
                                       <div className="text-sm font-semibold">{iss.title}</div>
+
                                       {iss.cardId ? (
-                                        <span className="badge badge-sm badge-outline">card {iss.cardId}</span>
+                                        <div className="tooltip tooltip-top" data-tip={`Card ID: ${iss.cardId}`}>
+                                          <span className="badge badge-sm badge-outline">ID {displayCardId(iss.cardId)}</span>
+                                        </div>
                                       ) : null}
                                     </div>
-                                    {iss.detail ? (
-                                      <div className="text-xs opacity-80 whitespace-pre-wrap">{iss.detail}</div>
-                                    ) : null}
+                                    {iss.detail ? <div className="text-xs opacity-80 whitespace-pre-wrap">{iss.detail}</div> : null}
                                   </div>
 
                                   {iss.cardId ? (
-                                    <button
-                                      className="btn btn-xs btn-primary"
-                                      type="button"
-                                      onClick={() => jumpToCard(iss.cardId!)}
-                                      title="Scroll to this card"
-                                    >
+                                    <button className="btn btn-xs btn-primary" type="button" onClick={() => jumpToCard(iss.cardId!)} title="Scroll to this card">
                                       Jump
                                     </button>
                                   ) : null}
@@ -1771,57 +1793,6 @@ export default function Workflow() {
                       After parsing, N2A will run a quick check and list any cards that look incomplete or likely skipped.
                     </div>
                   )}
-
-                  {/* AI buttons */}
-                  <div className="space-y-3">
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                      <button
-                        className="btn btn-ghost w-full"
-                        disabled={!parsedCount || busy || !canAI}
-                        onClick={() => void aiReviewAll(false, "content")}
-                      >
-                        AI Content Review
-                      </button>
-                      <button
-                        className="btn btn-ghost w-full"
-                        disabled={!parsedCount || busy || !canAI}
-                        onClick={() => void aiReviewAll(false, "format")}
-                      >
-                        AI Format Review
-                      </button>
-                      <button
-                        className="btn btn-ghost w-full"
-                        disabled={!parsedCount || busy || !canAI}
-                        onClick={() => void aiReviewAll(false, "both")}
-                      >
-                        AI Content and Format Review
-                      </button>
-                    </div>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                      <button
-                        className="btn btn-outline w-full"
-                        disabled={!parsedCount || busy || !canAI}
-                        onClick={() => void aiReviewAll(true, "content")}
-                      >
-                        Apply Content Changes
-                      </button>
-                      <button
-                        className="btn btn-outline w-full"
-                        disabled={!parsedCount || busy || !canAI}
-                        onClick={() => void aiReviewAll(true, "format")}
-                      >
-                        Apply Format Changes
-                      </button>
-                      <button
-                        className="btn btn-outline w-full"
-                        disabled={!parsedCount || busy || !canAI}
-                        onClick={() => void aiReviewAll(true, "both")}
-                      >
-                        Apply Content and Format Changes
-                      </button>
-                    </div>
-                  </div>
 
                   <div className="flex-1" />
 
@@ -1859,9 +1830,7 @@ export default function Workflow() {
             <div className="card bg-base-200/40 border border-base-300 rounded-2xl">
               <div className="card-body text-center space-y-2">
                 <div className="text-lg font-semibold">No cards to show</div>
-                <div className="text-sm opacity-70">
-                  {cards.length ? "Try changing the Filter." : "Upload a Markdown export, then press Parse."}
-                </div>
+                <div className="text-sm opacity-70">{cards.length ? "Try changing the Filter." : "Upload a Markdown export, then press Parse."}</div>
               </div>
             </div>
           ) : (
@@ -1928,9 +1897,7 @@ export default function Workflow() {
                               setStatus("Running AI review (content)…");
                               void aiReviewCard(c.id, false, "content")
                                 .then(() => setStatus("AI review complete."))
-                                .catch((e: any) =>
-                                  setStatus(e?.message ? `AI Review failed: ${e.message}` : "AI Review failed.")
-                                );
+                                .catch((e: any) => setStatus(e?.message ? `AI Review failed: ${e.message}` : "AI Review failed."));
                             }}
                           >
                             Review
@@ -1943,9 +1910,7 @@ export default function Workflow() {
                               setStatus("Running AI review (format)…");
                               void aiReviewCard(c.id, false, "format")
                                 .then(() => setStatus("AI review complete."))
-                                .catch((e: any) =>
-                                  setStatus(e?.message ? `AI Review failed: ${e.message}` : "AI Review failed.")
-                                );
+                                .catch((e: any) => setStatus(e?.message ? `AI Review failed: ${e.message}` : "AI Review failed."));
                             }}
                           >
                             Format
@@ -1959,9 +1924,7 @@ export default function Workflow() {
                               setStatus("Applying AI (both)…");
                               void aiReviewCard(c.id, true, "both")
                                 .then(() => setStatus("AI applied."))
-                                .catch((e: any) =>
-                                  setStatus(e?.message ? `AI Apply failed: ${e.message}` : "AI Apply failed.")
-                                );
+                                .catch((e: any) => setStatus(e?.message ? `AI Apply failed: ${e.message}` : "AI Apply failed."));
                             }}
                           >
                             Apply
@@ -2056,14 +2019,10 @@ export default function Workflow() {
                       )}
 
                       <div className="text-xs font-semibold opacity-70">Front (preview)</div>
-                      <pre className="whitespace-pre-wrap text-sm leading-relaxed bg-base-100/40 border border-base-300 rounded-xl p-3">
-                        {previewFront}
-                      </pre>
+                      <pre className="whitespace-pre-wrap text-sm leading-relaxed bg-base-100/40 border border-base-300 rounded-xl p-3">{previewFront}</pre>
 
                       <div className="text-xs font-semibold opacity-70">Back (preview)</div>
-                      <pre className="whitespace-pre-wrap text-sm leading-relaxed bg-base-100/40 border border-base-300 rounded-xl p-3">
-                        {previewBack}
-                      </pre>
+                      <pre className="whitespace-pre-wrap text-sm leading-relaxed bg-base-100/40 border border-base-300 rounded-xl p-3">{previewBack}</pre>
 
                       {isEditing && (
                         <div className="rounded-2xl border border-base-300 bg-base-100/50 p-3 space-y-3">
