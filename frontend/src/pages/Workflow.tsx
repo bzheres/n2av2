@@ -60,14 +60,6 @@ function severityBadgeClass(s: ParseIssueSeverity) {
   return "badge-info";
 }
 
-function displayCardId(id: string) {
-  const s = String(id ?? "");
-  if (!s) return "";
-  if (/^\d+$/.test(s)) return s; // persisted numeric IDs: show full
-  if (s.length <= 10) return s;
-  return `${s.slice(0, 4)}…${s.slice(-4)}`; // local IDs: shorten
-}
-
 /* ------------------------------------------------------------------ */
 /* Diff helper: line-based "good enough" visual diff for flashcards.   */
 /* - Added lines: primary-tinted highlight                             */
@@ -1760,12 +1752,6 @@ export default function Workflow() {
                                         {iss.severity.toUpperCase()}
                                       </span>
                                       <div className="text-sm font-semibold">{iss.title}</div>
-
-                                      {iss.cardId ? (
-                                        <div className="tooltip tooltip-top" data-tip={`Card ID: ${iss.cardId}`}>
-                                          <span className="badge badge-sm badge-outline">ID {displayCardId(iss.cardId)}</span>
-                                        </div>
-                                      ) : null}
                                     </div>
                                     {iss.detail ? <div className="text-xs opacity-80 whitespace-pre-wrap">{iss.detail}</div> : null}
                                   </div>
