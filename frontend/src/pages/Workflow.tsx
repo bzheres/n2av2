@@ -524,7 +524,10 @@ async function downloadApkg(projectId: number, overrideFilename?: string) {
   const rawBase = (import.meta as any).env?.VITE_API_BASE;
   const API_BASE = (rawBase && String(rawBase).trim()) || "https://api.n2a.com.au";
 
-  const url = `${API_BASE.replace(/\/+$/, "")}/export/apkg/${projectId}`;
+  const base = `${API_BASE.replace(/\/+$/, "")}/export/apkg/${projectId}`;
+  // Pass chosen deck name to backend so the *deck name inside Anki* matches the export name.
+  const deckName = (overrideFilename || "").trim();
+  const url = deckName ? `${base}?deck_name=${encodeURIComponent(deckName)}` : base;
 
   const resp = await fetch(url, {
     method: "GET",
@@ -1178,6 +1181,7 @@ export default function Workflow() {
       await exportAPKG(chosen);
     } else {
       exportTSV(chosen);
+      setStatus(`TSV exported as "${chosen}.tsv". In Anki, choose (or create) a deck named "${chosen}" during import.`);
     }
   }
 
